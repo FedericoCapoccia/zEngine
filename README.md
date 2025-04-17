@@ -1,2 +1,2 @@
-# Simple Engine
-A simple Vulkan Engine.
+# zEngine
+A simple Vulkan Engine written in zig.
