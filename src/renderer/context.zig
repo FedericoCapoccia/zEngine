@@ -18,7 +18,7 @@ pub const VulkanContext = struct {
     instance: vk.InstanceProxy,
     _messenger: ?vk.DebugUtilsMessengerEXT,
 
-    window: *Window,
+    window: *const Window,
     surface: vk.SurfaceKHR,
     surface_details: core.surface.Details,
 
@@ -30,14 +30,16 @@ pub const VulkanContext = struct {
     compute_queue: vk.Queue,
     transfer_queue: vk.Queue,
 
+    vma: c.VmaAllocator,
+
     _allocator: Allocator,
     _base_wrapper: vk.BaseWrapper,
 
-    pub fn init(allocator: Allocator, window: *Window) !VulkanContext {
+    pub fn init(allocator: Allocator, window: *const Window) !VulkanContext {
         var self: VulkanContext = undefined;
         self._allocator = allocator;
         self.window = window;
-        self._base_wrapper = vk.BaseWrapper.load(window.getInstanceProcAddress());
+        self._base_wrapper = vk.BaseWrapper.load(Window.getInstanceProcAddress());
 
         core.instance.create(&self, enable_validation) catch |err| {
             std.log.err("Failed to create VulkanInstance: {s}", .{@errorName(err)});
@@ -70,16 +72,19 @@ pub const VulkanContext = struct {
             .instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
             .physicalDevice = @ptrFromInt(@intFromEnum(self.gpu)),
             .device = @ptrFromInt(@intFromEnum(self.device.handle)),
-            // .pVulkanFunctions = @ptrCast(&window.getInstanceProcAddress()),
         };
 
-        var balls: c.VmaAllocator = undefined;
-        _ = c.vmaCreateAllocator(&vma_info, &balls);
+        if (c.vmaCreateAllocator(&vma_info, &self.vma) != c.VK_SUCCESS) {
+            std.log.err("Failed to create VulkanMemoryAllocator", .{});
+            return error.VmaAllocatorCreationFailed;
+        }
+        errdefer c.vmaDestroyAllocator(self.vma);
 
         return self;
     }
 
     pub fn shutdown(self: *VulkanContext) void {
+        c.vmaDestroyAllocator(self.vma);
         core.device.destroy(self);
         core.surface.destroy(self);
         core.instance.destroy(self);

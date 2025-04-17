@@ -5,7 +5,6 @@ const sdl = @import("zsdl3");
 const log_fn = @import("log.zig");
 const Renderer = @import("renderer.zig").Renderer;
 const Window = @import("window.zig").Window;
-const Dimensions = @import("window.zig").Dimensions;
 
 const log = std.log.scoped(.main);
 
@@ -15,9 +14,7 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main() !void {
-    const dimensions = Dimensions{ .width = 800, .height = 600 };
-
-    var window = Window.initialize(dimensions, "SimpleEngine") catch |err| {
+    const window = Window.initialize(800, 600, "SimpleEngine") catch |err| {
         log.err("Failed to create window: {s}", .{@errorName(err)});
         return;
     };

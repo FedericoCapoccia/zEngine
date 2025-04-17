@@ -6,43 +6,29 @@ const vk = @import("vulkan");
 
 extern fn SDL_Vulkan_CreateSurface(window: *sdl.Window, instance: vk.Instance, allocator: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) bool;
 
-pub const Dimensions = struct {
-    width: i32,
-    height: i32,
-};
-
 pub const Window = struct {
     handle: *sdl.Window,
     title: [*:0]const u8,
-    dim: Dimensions,
 
-    pub fn initialize(dimensions: Dimensions, title: [*:0]const u8) !Window {
+    pub fn initialize(width: i32, height: i32, title: [*:0]const u8) !Window {
         try sdl.init(.{ .video = true });
 
         var self: Window = undefined;
         self.title = title;
-        self.dim = dimensions;
-
-        self.handle = try sdl.createWindow(
-            title,
-            dimensions.width,
-            dimensions.height,
-            .{ .vulkan = true, .resizable = true },
-        );
+        self.handle = try sdl.createWindow(title, width, height, .{ .vulkan = true, .resizable = true });
 
         return self;
     }
 
-    pub fn shutdown(self: *Window) void {
+    pub fn shutdown(self: *const Window) void {
         self.handle.destroy();
     }
 
-    pub fn getInstanceProcAddress(self: *Window) vk.PfnGetInstanceProcAddr {
-        _ = self;
+    pub fn getInstanceProcAddress() vk.PfnGetInstanceProcAddr {
         return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
     }
 
-    pub fn createVulkanSurface(self: *Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
+    pub fn createVulkanSurface(self: *const Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
         var surface: vk.SurfaceKHR = undefined;
 
         const res = SDL_Vulkan_CreateSurface(
