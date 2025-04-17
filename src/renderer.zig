@@ -24,7 +24,7 @@ pub const Renderer = struct {
             return err;
         };
 
-        renderer.current_extent = try renderer.window.getFramebufferSize();
+        renderer.current_extent = try renderer.window.getSize();
         std.log.debug("width: {d}, height: {d}", .{ renderer.current_extent.width, renderer.current_extent.height });
     }
 

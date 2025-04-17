@@ -31,7 +31,7 @@ pub const Window = struct {
         return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
     }
 
-    pub fn getFramebufferSize(self: *const Window) !vk.Extent2D {
+    pub fn getSize(self: *const Window) !vk.Extent2D {
         var width: i32 = undefined;
         var height: i32 = undefined;
         try self.handle.getSize(&width, &height);
