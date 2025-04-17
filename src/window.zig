@@ -4,6 +4,8 @@ const builtin = @import("builtin");
 const sdl = @import("zsdl3");
 const vk = @import("vulkan");
 
+const core = @import("renderer/core.zig");
+
 extern fn SDL_Vulkan_CreateSurface(window: *sdl.Window, instance: vk.Instance, allocator: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) bool;
 
 pub const Window = struct {
@@ -34,10 +36,7 @@ pub const Window = struct {
     pub fn getSize(self: *const Window) vk.Extent2D {
         var width: i32 = undefined;
         var height: i32 = undefined;
-        self.handle.getSize(&width, &height) catch {
-            width = 0;
-            height = 0;
-        };
+        self.handle.getSize(&width, &height) catch unreachable;
 
         return vk.Extent2D{
             .width = @intCast(width),

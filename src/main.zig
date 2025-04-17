@@ -22,16 +22,20 @@ pub fn main() !void {
     // TODO: move into engine loop and leave main as the entrypoint
     var running = true;
     var event: sdl.Event = undefined;
+    var resize_requested = false;
     while (running) {
+        if (resize_requested) {
+            engine.renderer.resize() catch |err| {
+                std.log.err("Failed to resize: {s}", .{@errorName(err)});
+                return err;
+            };
+            resize_requested = false;
+        }
+
         while (sdl.pollEvent(&event)) {
             switch (event.type) {
                 .quit => running = false,
-                .window_resized => {
-                    engine.renderer.resize() catch |err| {
-                        std.log.err("Failed to resize: {s}", .{@errorName(err)});
-                        return err;
-                    };
-                },
+                .window_resized => resize_requested = true,
                 else => {},
             }
         }

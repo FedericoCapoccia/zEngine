@@ -21,7 +21,6 @@ pub const VulkanContext = struct {
     messenger: ?vk.DebugUtilsMessengerEXT = null,
 
     surface: vk.SurfaceKHR = .null_handle,
-    surface_details: core.surface.Details = undefined,
 
     gpu: vk.PhysicalDevice = .null_handle,
     gpu_details: core.gpu.Details = undefined,
@@ -53,8 +52,6 @@ pub const VulkanContext = struct {
             return error.PhysicalDeviceSelectionFailed;
         };
         std.log.info("Selected {s}", .{context.gpu_details.props.device_name});
-
-        try core.surface.queryDetails(context);
 
         core.device.create(context) catch |err| {
             std.log.err("Failed to create logical device: {s}", .{@errorName(err)});

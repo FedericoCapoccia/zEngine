@@ -28,7 +28,7 @@ pub const Engine = struct {
         errdefer engine.renderer.shutdown();
     }
 
-    pub fn shutdown(self: *const Engine) void {
+    pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
         self.renderer.shutdown();
         self.window.shutdown();
