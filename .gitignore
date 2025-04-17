@@ -1,0 +1,8 @@
+.vs/
+.idea/
+
+zig-out/
+.zig-cache/
+
+.direnv/
+thirdparty/*
