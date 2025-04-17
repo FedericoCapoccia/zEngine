@@ -27,7 +27,10 @@ pub fn main() !void {
             switch (event.type) {
                 .quit => running = false,
                 .window_resized => {
-                    std.log.debug("Window resized", .{});
+                    engine.renderer.resize() catch |err| {
+                        std.log.err("Failed to resize: {s}", .{@errorName(err)});
+                        return err;
+                    };
                 },
                 else => {},
             }

@@ -31,10 +31,13 @@ pub const Window = struct {
         return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
     }
 
-    pub fn getSize(self: *const Window) !vk.Extent2D {
+    pub fn getSize(self: *const Window) vk.Extent2D {
         var width: i32 = undefined;
         var height: i32 = undefined;
-        try self.handle.getSize(&width, &height);
+        self.handle.getSize(&width, &height) catch {
+            width = 0;
+            height = 0;
+        };
 
         return vk.Extent2D{
             .width = @intCast(width),

@@ -30,8 +30,8 @@ pub const Renderer = struct {
         };
         errdefer renderer.context.shutdown();
 
-        const win_extent = try renderer.window.getSize();
-        createSwapchain(renderer, win_extent, .null_handle) catch |err| {
+        const win_extent = renderer.window.getSize();
+        createSwapchain(renderer, win_extent) catch |err| {
             std.log.err("Failed to create swapchain", .{});
             return err;
         };
@@ -48,10 +48,39 @@ pub const Renderer = struct {
         self.context.shutdown();
     }
 
-    pub fn resize() void {}
+    pub fn resize(self: *Renderer) !void {
+        std.log.debug("Resizing", .{});
+        self.context.device.deviceWaitIdle() catch {};
+
+        destroySwapchain(self);
+        const win_extent = self.window.getSize();
+        try createSwapchain(self, win_extent);
+    }
 };
 
-fn createSwapchain(renderer: *Renderer, window_extent: vk.Extent2D, old_swapchain: vk.SwapchainKHR) !void {
+// TODO: look at this shit
+//
+// fn make_swapchain_extent(capabilities: c.VkSurfaceCapabilitiesKHR, opts: SwapchainCreateOpts) c.VkExtent2D {
+//     if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
+//         return capabilities.currentExtent;
+//     }
+//
+//     var extent = c.VkExtent2D{
+//         .width = opts.window_width,
+//         .height = opts.window_height,
+//     };
+//
+//     extent.width = @max(
+//         capabilities.minImageExtent.width,
+//         @min(capabilities.maxImageExtent.width, extent.width));
+//     extent.height = @max(
+//         capabilities.minImageExtent.height,
+//         @min(capabilities.maxImageExtent.height, extent.height));
+//
+//     return extent;
+// }
+
+fn createSwapchain(renderer: *Renderer, window_extent: vk.Extent2D) !void {
     std.log.debug("Creating swapchain", .{});
     const details = renderer.context.surface_details;
     const props = details.caps;
@@ -77,7 +106,7 @@ fn createSwapchain(renderer: *Renderer, window_extent: vk.Extent2D, old_swapchai
         .composite_alpha = .{ .opaque_bit_khr = true },
         .present_mode = details.present_mode,
         .clipped = vk.TRUE,
-        .old_swapchain = old_swapchain,
+        .old_swapchain = .null_handle,
     };
 
     renderer.swapchain = try renderer.context.device.createSwapchainKHR(&info, null);
