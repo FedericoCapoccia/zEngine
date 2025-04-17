@@ -18,18 +18,18 @@ pub const VulkanContext = struct {
     bw: vk.BaseWrapper = undefined,
 
     instance: vk.InstanceProxy = undefined,
-    messenger: ?vk.DebugUtilsMessengerEXT = undefined,
+    messenger: ?vk.DebugUtilsMessengerEXT = null,
 
-    surface: vk.SurfaceKHR = undefined,
+    surface: vk.SurfaceKHR = .null_handle,
     surface_details: core.surface.Details = undefined,
 
-    gpu: vk.PhysicalDevice = undefined,
+    gpu: vk.PhysicalDevice = .null_handle,
     gpu_details: core.gpu.Details = undefined,
 
     device: vk.DeviceProxy = undefined,
-    graphics_queue: vk.Queue = undefined,
-    compute_queue: vk.Queue = undefined,
-    transfer_queue: vk.Queue = undefined,
+    graphics_queue: vk.Queue = .null_handle,
+    compute_queue: vk.Queue = .null_handle,
+    transfer_queue: vk.Queue = .null_handle,
 
     vma: c.VmaAllocator = undefined,
 

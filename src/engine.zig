@@ -15,6 +15,7 @@ pub const Engine = struct {
             std.log.err("Failed to initialize window: {s}", .{@errorName(err)});
             return error.WindowCreationFailed;
         };
+        errdefer engine.window.shutdown();
 
         engine.renderer = Renderer{
             .allocator = engine.allocator,
@@ -24,6 +25,7 @@ pub const Engine = struct {
             std.log.err("Failed to initialize renderer: {s}", .{@errorName(err)});
             return error.RendererCreationFailed;
         };
+        errdefer engine.renderer.shutdown();
     }
 
     pub fn shutdown(self: *const Engine) void {
