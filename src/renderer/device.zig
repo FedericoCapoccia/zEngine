@@ -12,7 +12,7 @@ pub fn create(ctx: *VulkanContext) !void {
     const compute = ctx.gpu_details.compute_qfamily;
     const transfer = ctx.gpu_details.transfer_qfamility;
 
-    var queue_infos = std.ArrayList(vk.DeviceQueueCreateInfo).init(ctx._allocator);
+    var queue_infos = std.ArrayList(vk.DeviceQueueCreateInfo).init(ctx.allocator);
     defer queue_infos.deinit();
 
     const graphics_queue_info = vk.DeviceQueueCreateInfo{
@@ -51,15 +51,15 @@ pub fn create(ctx: *VulkanContext) !void {
 
     const handle = try ctx.instance.createDevice(ctx.gpu, &info, null);
 
-    const wrapper = try ctx._allocator.create(vk.DeviceWrapper);
+    const wrapper = try ctx.allocator.create(vk.DeviceWrapper);
     errdefer ctx._allocator.destroy(wrapper);
     wrapper.* = vk.DeviceWrapper.load(handle, ctx.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
 
     ctx.device = vk.DeviceProxy.init(handle, wrapper);
 }
 
-pub fn destroy(ctx: *VulkanContext) void {
+pub fn destroy(ctx: *const VulkanContext) void {
     std.log.debug("Destroying logical device", .{});
     ctx.device.destroyDevice(null);
-    ctx._allocator.destroy(ctx.device.wrapper);
+    ctx.allocator.destroy(ctx.device.wrapper);
 }

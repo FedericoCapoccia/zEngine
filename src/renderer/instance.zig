@@ -16,15 +16,15 @@ pub fn create(ctx: *VulkanContext, validation: bool) !void {
     };
 
     const available_extensions =
-        try ctx._base_wrapper.enumerateInstanceExtensionPropertiesAlloc(null, ctx._allocator);
+        try ctx.bw.enumerateInstanceExtensionPropertiesAlloc(null, ctx.allocator);
     const available_layers =
-        try ctx._base_wrapper.enumerateInstanceLayerPropertiesAlloc(ctx._allocator);
-    defer ctx._allocator.free(available_extensions);
-    defer ctx._allocator.free(available_layers);
+        try ctx.bw.enumerateInstanceLayerPropertiesAlloc(ctx.allocator);
+    defer ctx.allocator.free(available_extensions);
+    defer ctx.allocator.free(available_layers);
     logAvailableLayersAndExtensions(available_extensions, available_layers);
 
-    var extensions = try @import("../window.zig").Window.getRequiredVulkanExtensions(ctx._allocator);
-    var layers = std.ArrayList([*:0]const u8).init(ctx._allocator);
+    var extensions = try ctx.window.getRequiredVulkanExtensions(ctx.allocator);
+    var layers = std.ArrayList([*:0]const u8).init(ctx.allocator);
     if (validation) {
         try extensions.append(vk.extensions.ext_debug_utils.name);
         try layers.append("VK_LAYER_KHRONOS_validation");
@@ -49,25 +49,25 @@ pub fn create(ctx: *VulkanContext, validation: bool) !void {
         .pp_enabled_layer_names = layers.items.ptr,
     };
 
-    const handle = try ctx._base_wrapper.createInstance(&create_info, null);
-    const wrapper = try ctx._allocator.create(vk.InstanceWrapper);
-    errdefer ctx._allocator.destroy(wrapper);
-    wrapper.* = vk.InstanceWrapper.load(handle, ctx._base_wrapper.dispatch.vkGetInstanceProcAddr.?);
+    const handle = try ctx.bw.createInstance(&create_info, null);
+    const wrapper = try ctx.allocator.create(vk.InstanceWrapper);
+    errdefer ctx.allocator.destroy(wrapper);
+    wrapper.* = vk.InstanceWrapper.load(handle, ctx.bw.dispatch.vkGetInstanceProcAddr.?);
     ctx.instance = vk.InstanceProxy.init(handle, wrapper);
 
     if (validation) {
-        ctx._messenger = try createMessenger(ctx.instance);
+        ctx.messenger = try createMessenger(ctx.instance);
     }
 }
 
-pub fn destroy(ctx: *VulkanContext) void {
-    if (ctx._messenger) |mess| {
+pub fn destroy(ctx: *const VulkanContext) void {
+    if (ctx.messenger) |mess| {
         std.log.debug("Destroying DebugUtilsMessenger", .{});
         ctx.instance.destroyDebugUtilsMessengerEXT(mess, null);
     }
     std.log.debug("Destroying Vulkan instance", .{});
     ctx.instance.destroyInstance(null);
-    ctx._allocator.destroy(ctx.instance.wrapper);
+    ctx.allocator.destroy(ctx.instance.wrapper);
 }
 
 fn supportsLayers(avail: []vk.LayerProperties, required: []const [*:0]const u8) !bool {

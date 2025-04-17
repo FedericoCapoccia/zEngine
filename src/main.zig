@@ -13,7 +13,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer if (gpa.deinit() == .leak) std.log.err("Leaked memory", .{});
 
-    var engine = Engine{ .allocator = &allocator };
+    var engine = Engine{ .allocator = allocator };
     try Engine.init(&engine);
     defer engine.shutdown();
 

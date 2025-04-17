@@ -22,7 +22,8 @@ pub const Window = struct {
         self.handle.destroy();
     }
 
-    pub fn getInstanceProcAddress() vk.PfnGetInstanceProcAddr {
+    pub fn getInstanceProcAddress(self: *const Window) vk.PfnGetInstanceProcAddr {
+        _ = self;
         return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
     }
 
@@ -43,7 +44,8 @@ pub const Window = struct {
         return surface;
     }
 
-    pub fn getRequiredVulkanExtensions(allocator: std.mem.Allocator) !std.ArrayList([*:0]const u8) {
+    pub fn getRequiredVulkanExtensions(self: *const Window, allocator: std.mem.Allocator) !std.ArrayList([*:0]const u8) {
+        _ = self;
         var count: i32 = undefined;
         const balls = sdl.vk.getInstanceExtensions(&count) orelse return error.SdlError;
 

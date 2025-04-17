@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 
 const vk = @import("vulkan");
 
-const Window = @import("../window.zig").Window;
 const VulkanContext = @import("context.zig").VulkanContext;
 
 pub const Details = struct {
@@ -17,7 +16,7 @@ pub fn create(ctx: *VulkanContext) !void {
     ctx.surface = try ctx.window.createVulkanSurface(ctx.instance);
 }
 
-pub fn destroy(ctx: *VulkanContext) void {
+pub fn destroy(ctx: *const VulkanContext) void {
     std.log.debug("Destroying surface", .{});
     ctx.instance.destroySurfaceKHR(ctx.surface, null);
 }
@@ -26,10 +25,10 @@ pub fn queryDetails(ctx: *VulkanContext) !void {
     std.log.debug("Querying surface details", .{});
     var details: Details = undefined;
 
-    const formats = try ctx.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(ctx.gpu, ctx.surface, ctx._allocator);
-    const present_modes = try ctx.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(ctx.gpu, ctx.surface, ctx._allocator);
-    defer ctx._allocator.free(formats);
-    defer ctx._allocator.free(present_modes);
+    const formats = try ctx.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(ctx.gpu, ctx.surface, ctx.allocator);
+    const present_modes = try ctx.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(ctx.gpu, ctx.surface, ctx.allocator);
+    defer ctx.allocator.free(formats);
+    defer ctx.allocator.free(present_modes);
 
     details.format = blk: {
         for (formats) |format| {

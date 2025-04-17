@@ -1,9 +1,7 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 
 const c = @import("c").c;
-const sdl = @import("zsdl3");
 const vk = @import("vulkan");
 
 const Window = @import("../window.zig").Window;
@@ -15,75 +13,70 @@ const enable_validation: bool = switch (builtin.mode) {
 };
 
 pub const VulkanContext = struct {
-    instance: vk.InstanceProxy,
-    _messenger: ?vk.DebugUtilsMessengerEXT,
-
+    allocator: std.mem.Allocator,
     window: *const Window,
-    surface: vk.SurfaceKHR,
-    surface_details: core.surface.Details,
+    bw: vk.BaseWrapper = undefined,
 
-    gpu: vk.PhysicalDevice,
-    gpu_details: core.gpu.Details,
+    instance: vk.InstanceProxy = undefined,
+    messenger: ?vk.DebugUtilsMessengerEXT = undefined,
 
-    device: vk.DeviceProxy,
-    graphics_queue: vk.Queue,
-    compute_queue: vk.Queue,
-    transfer_queue: vk.Queue,
+    surface: vk.SurfaceKHR = undefined,
+    surface_details: core.surface.Details = undefined,
 
-    vma: c.VmaAllocator,
+    gpu: vk.PhysicalDevice = undefined,
+    gpu_details: core.gpu.Details = undefined,
 
-    _allocator: Allocator,
-    _base_wrapper: vk.BaseWrapper,
+    device: vk.DeviceProxy = undefined,
+    graphics_queue: vk.Queue = undefined,
+    compute_queue: vk.Queue = undefined,
+    transfer_queue: vk.Queue = undefined,
 
-    pub fn init(allocator: Allocator, window: *const Window) !VulkanContext {
-        var self: VulkanContext = undefined;
-        self._allocator = allocator;
-        self.window = window;
-        self._base_wrapper = vk.BaseWrapper.load(Window.getInstanceProcAddress());
+    vma: c.VmaAllocator = undefined,
 
-        core.instance.create(&self, enable_validation) catch |err| {
+    pub fn init(context: *VulkanContext) !void {
+        context.bw = vk.BaseWrapper.load(context.window.getInstanceProcAddress());
+
+        core.instance.create(context, enable_validation) catch |err| {
             std.log.err("Failed to create VulkanInstance: {s}", .{@errorName(err)});
             return error.InstanceCreationFailed;
         };
-        errdefer core.instance.destroy(&self);
+        errdefer core.instance.destroy(context);
 
-        core.surface.create(&self) catch |err| {
+        core.surface.create(context) catch |err| {
             std.log.err("Failed to create Vulkan Surface: {s}", .{@errorName(err)});
             return error.SurfaceCreationFailed;
         };
-        errdefer core.surface.destroy(&self);
+        errdefer core.surface.destroy(context);
 
-        core.gpu.select(&self) catch |err| {
+        core.gpu.select(context) catch |err| {
             std.log.err("Failed to select PhysicalDevice: {s}", .{@errorName(err)});
             return error.PhysicalDeviceSelectionFailed;
         };
-        std.log.info("Selected {s}", .{self.gpu_details.props.device_name});
+        std.log.info("Selected {s}", .{context.gpu_details.props.device_name});
 
-        try core.surface.queryDetails(&self);
+        try core.surface.queryDetails(context);
 
-        core.device.create(&self) catch |err| {
+        core.device.create(context) catch |err| {
             std.log.err("Failed to create logical device: {s}", .{@errorName(err)});
             return error.PhysicalDeviceSelectionFailed;
         };
-        errdefer core.device.destroy(&self);
+        errdefer core.device.destroy(context);
 
         const vma_info = c.VmaAllocatorCreateInfo{
             .vulkanApiVersion = c.VK_API_VERSION_1_4,
-            .instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
-            .physicalDevice = @ptrFromInt(@intFromEnum(self.gpu)),
-            .device = @ptrFromInt(@intFromEnum(self.device.handle)),
+            .instance = @ptrFromInt(@intFromEnum(context.instance.handle)),
+            .physicalDevice = @ptrFromInt(@intFromEnum(context.gpu)),
+            .device = @ptrFromInt(@intFromEnum(context.device.handle)),
         };
 
-        if (c.vmaCreateAllocator(&vma_info, &self.vma) != c.VK_SUCCESS) {
+        if (c.vmaCreateAllocator(&vma_info, &context.vma) != c.VK_SUCCESS) {
             std.log.err("Failed to create VulkanMemoryAllocator", .{});
             return error.VmaAllocatorCreationFailed;
         }
-        errdefer c.vmaDestroyAllocator(self.vma);
-
-        return self;
+        errdefer c.vmaDestroyAllocator(context.vma);
     }
 
-    pub fn shutdown(self: *VulkanContext) void {
+    pub fn shutdown(self: *const VulkanContext) void {
         c.vmaDestroyAllocator(self.vma);
         core.device.destroy(self);
         core.surface.destroy(self);

@@ -20,8 +20,8 @@ pub const Details = struct {
 
 pub fn select(ctx: *VulkanContext) !void {
     std.log.debug("Selecting physical device", .{});
-    const devices = try ctx.instance.enumeratePhysicalDevicesAlloc(ctx._allocator);
-    defer ctx._allocator.free(devices);
+    const devices = try ctx.instance.enumeratePhysicalDevicesAlloc(ctx.allocator);
+    defer ctx.allocator.free(devices);
 
     var candidate: ?vk.PhysicalDevice = null;
     var max_score: u32 = 0;
@@ -32,10 +32,10 @@ pub fn select(ctx: *VulkanContext) !void {
         const score = rate(props);
         std.log.info("Found PhysicalDevice [{s}] score: {d}", .{ props.device_name, score });
 
-        const has_ext_support = try supportsExtensions(pdev, ctx.instance, ctx._allocator);
+        const has_ext_support = try supportsExtensions(pdev, ctx.instance, ctx.allocator);
         if (!has_ext_support) continue;
 
-        const queues = try scanQueueFamilies(pdev, ctx.instance, ctx._allocator, ctx.surface);
+        const queues = try scanQueueFamilies(pdev, ctx.instance, ctx.allocator, ctx.surface);
 
         std.log.debug("---------------------------", .{});
 

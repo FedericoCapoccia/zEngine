@@ -10,17 +10,23 @@ const Window = @import("window.zig").Window;
 const log = std.log.scoped(.renderer);
 
 pub const Renderer = struct {
-    context: VulkanContext,
+    allocator: std.mem.Allocator,
+    window: *const Window,
+    context: VulkanContext = undefined,
 
-    pub fn initialize(allocator: std.mem.Allocator, window: *const Window) !Renderer {
+    pub fn init(renderer: *Renderer) !void {
         log.info("Initializing renderer", .{});
-        var self: Renderer = undefined;
-        self.context = try VulkanContext.init(allocator, window);
-
-        return self;
+        renderer.context = VulkanContext{
+            .allocator = renderer.allocator,
+            .window = renderer.window,
+        };
+        VulkanContext.init(&renderer.context) catch |err| {
+            std.log.err("Failed to initialize VulkanContext: {s}", .{@errorName(err)});
+            return err;
+        };
     }
 
-    pub fn shutdown(self: *Renderer) void {
+    pub fn shutdown(self: *const Renderer) void {
         log.info("Shutting down renderer", .{});
         self.context.shutdown();
     }
