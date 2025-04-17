@@ -14,7 +14,11 @@ pub const Window = struct {
         std.log.info("Initializing window", .{});
         try sdl.init(.{ .video = true });
         window.title = title;
-        window.handle = try sdl.createWindow(title, width, height, .{ .vulkan = true, .resizable = true });
+        window.handle = try sdl.createWindow(title, width, height, .{
+            .vulkan = true,
+            .resizable = true,
+            .allow_high_pixel_density = true,
+        });
     }
 
     pub fn shutdown(self: *const Window) void {
@@ -25,6 +29,17 @@ pub const Window = struct {
     pub fn getInstanceProcAddress(self: *const Window) vk.PfnGetInstanceProcAddr {
         _ = self;
         return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
+    }
+
+    pub fn getFramebufferSize(self: *const Window) !vk.Extent2D {
+        var width: i32 = undefined;
+        var height: i32 = undefined;
+        try self.handle.getSize(&width, &height);
+
+        return vk.Extent2D{
+            .width = @intCast(width),
+            .height = @intCast(height),
+        };
     }
 
     pub fn createVulkanSurface(self: *const Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
