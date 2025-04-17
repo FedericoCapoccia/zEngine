@@ -10,17 +10,15 @@ pub const Window = struct {
     handle: *sdl.Window,
     title: [*:0]const u8,
 
-    pub fn initialize(width: i32, height: i32, title: [*:0]const u8) !Window {
+    pub fn init(window: *Window, width: i32, height: i32, title: [*:0]const u8) !void {
+        std.log.info("Initializing window", .{});
         try sdl.init(.{ .video = true });
-
-        var self: Window = undefined;
-        self.title = title;
-        self.handle = try sdl.createWindow(title, width, height, .{ .vulkan = true, .resizable = true });
-
-        return self;
+        window.title = title;
+        window.handle = try sdl.createWindow(title, width, height, .{ .vulkan = true, .resizable = true });
     }
 
     pub fn shutdown(self: *const Window) void {
+        std.log.info("Shutting down window", .{});
         self.handle.destroy();
     }
 
