@@ -10,6 +10,14 @@ pub const std_options: std.Options = .{
     .logFn = log_fn.myLogFn,
 };
 
+var resize_requested: bool = false;
+fn onResize(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
+    resize_requested = true;
+    _ = window;
+    _ = width;
+    _ = height;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -19,34 +27,21 @@ pub fn main() !void {
     try Engine.init(&engine);
     defer engine.shutdown();
 
+    _ = c.glfwSetFramebufferSizeCallback(engine.window.handle, onResize);
+
     while (c.glfwWindowShouldClose(engine.window.handle) == 0) {
+        if (resize_requested) {
+            engine.renderer.resize() catch |err| {
+                std.log.err("Failed to resize: {s}", .{@errorName(err)});
+                return err;
+            };
+            resize_requested = false;
+        }
+
         engine.renderer.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});
         };
 
         c.glfwPollEvents();
     }
-
-    // TODO: move into engine loop and leave main as the entrypoint
-    // var running = true;
-    // var event: sdl.Event = undefined;
-    // var resize_requested = false;
-    // while (running) {
-    //     if (resize_requested) {
-    //         engine.renderer.resize() catch |err| {
-    //             std.log.err("Failed to resize: {s}", .{@errorName(err)});
-    //             return err;
-    //         };
-    //         resize_requested = false;
-    //     }
-    //
-    //         //
-    //     while (sdl.pollEvent(&event)) {
-    //         switch (event.type) {
-    //             .quit => running = false,
-    //             .window_resized => resize_requested = true,
-    //             else => {},
-    //         }
-    //     }
-    // }
 }

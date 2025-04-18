@@ -26,6 +26,7 @@
 
           libdecor
           libxkbcommon
+          glfw
         ];
       };
     };

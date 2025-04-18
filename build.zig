@@ -27,9 +27,9 @@ pub fn build(b: *std.Build) !void {
     clibs_mod.addIncludePath(b.path("thirdparty/wl"));
 
     if (target.result.os.tag == .windows) {
-        clibs_mod.linkSystemLibrary("gdi32", .{ .needed = true });
-        clibs_mod.linkSystemLibrary("dwmapi", .{ .needed = true });
-        clibs_mod.linkSystemLibrary("winmm", .{ .needed = true });
+        exe.linkSystemLibrary("gdi32");
+        exe.linkSystemLibrary("dwmapi");
+        exe.linkSystemLibrary("winmm");
 
         clibs_mod.addCSourceFiles(.{
             .files = &[_][]const u8{
