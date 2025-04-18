@@ -21,7 +21,11 @@
           vulkan-validation-layers
           vulkan-tools
 
-          sdl3
+          wayland
+          wayland-protocols
+
+          libdecor
+          libxkbcommon
         ];
       };
     };

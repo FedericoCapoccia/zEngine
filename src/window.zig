@@ -1,43 +1,36 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const sdl = @import("zsdl3");
 const vk = @import("vulkan");
+const c = @import("c").c;
+pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
 const core = @import("renderer/core.zig");
 
-extern fn SDL_Vulkan_CreateSurface(window: *sdl.Window, instance: vk.Instance, allocator: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) bool;
-
 pub const Window = struct {
-    handle: *sdl.Window,
+    handle: *c.GLFWwindow,
     title: [*:0]const u8,
 
     pub fn init(window: *Window, width: i32, height: i32, title: [*:0]const u8) !void {
         std.log.info("Initializing window", .{});
-        _ = sdl.setHint("SDL_VIDEO_DRIVER", "wayland,windows");
-        try sdl.init(.{ .video = true });
+
+        _ = c.glfwInit();
+
+        c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
+        window.handle = c.glfwCreateWindow(width, height, title, null, null).?;
         window.title = title;
-        window.handle = try sdl.createWindow(title, width, height, .{
-            .vulkan = true,
-            .resizable = true,
-            .allow_high_pixel_density = true,
-        });
     }
 
     pub fn shutdown(self: *const Window) void {
         std.log.info("Shutting down window", .{});
-        self.handle.destroy();
-    }
-
-    pub fn getInstanceProcAddress(self: *const Window) vk.PfnGetInstanceProcAddr {
-        _ = self;
-        return @ptrCast(sdl.vk.getVkGetInstanceProcAddr().?);
+        c.glfwDestroyWindow(self.handle);
+        c.glfwTerminate();
     }
 
     pub fn getSize(self: *const Window) vk.Extent2D {
         var width: i32 = undefined;
         var height: i32 = undefined;
-        self.handle.getSize(&width, &height) catch unreachable;
+        c.glfwGetFramebufferSize(self.handle, &width, &height);
 
         return vk.Extent2D{
             .width = @intCast(width),
@@ -47,25 +40,14 @@ pub const Window = struct {
 
     pub fn createVulkanSurface(self: *const Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
         var surface: vk.SurfaceKHR = undefined;
-
-        const res = SDL_Vulkan_CreateSurface(
-            self.handle,
-            instance.handle,
-            null,
-            &surface,
-        );
-
-        if (!res) {
-            return error.FailedToCreateSurface;
-        }
-
+        _ = glfwCreateWindowSurface(instance.handle, self.handle, null, &surface);
         return surface;
     }
 
     pub fn getRequiredVulkanExtensions(self: *const Window, allocator: std.mem.Allocator) !std.ArrayList([*:0]const u8) {
         _ = self;
-        var count: i32 = undefined;
-        const balls = sdl.vk.getInstanceExtensions(&count) orelse return error.SdlError;
+        var count: u32 = undefined;
+        const balls = c.glfwGetRequiredInstanceExtensions(&count);
 
         var list = std.ArrayList([*:0]const u8).init(allocator);
         var i: usize = 0;

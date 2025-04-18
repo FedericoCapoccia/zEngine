@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const c = @import("c").c;
+pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
+
 const vk = @import("vulkan");
 
 const Window = @import("../window.zig").Window;
@@ -30,7 +32,7 @@ pub const VulkanContext = struct {
     vma: c.VmaAllocator = undefined,
 
     pub fn init(context: *VulkanContext) !void {
-        context.bw = vk.BaseWrapper.load(context.window.getInstanceProcAddress());
+        context.bw = vk.BaseWrapper.load(glfwGetInstanceProcAddress);
 
         core.instance.create(context, enable_validation) catch |err| {
             std.log.err("Failed to create VulkanInstance: {s}", .{@errorName(err)});

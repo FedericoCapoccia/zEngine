@@ -5,3 +5,6 @@
 	path = thirdparty/VulkanHeaders
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
         branch = vulkan-sdk-1.4.309
+[submodule "thirdparty/GLFW"]
+	path = thirdparty/GLFW
+	url = https://github.com/glfw/glfw.git

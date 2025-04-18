@@ -22,23 +22,85 @@ pub fn build(b: *std.Build) !void {
     clibs_mod.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
     clibs_mod.addIncludePath(b.path("thirdparty/VMA/include"));
     clibs_mod.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
-    exe.root_module.addImport("c", clibs_mod);
 
-    const zsdl = b.dependency("zsdl", .{});
-    exe.root_module.addImport("zsdl3", zsdl.module("zsdl3"));
+    clibs_mod.addIncludePath(b.path("thirdparty/GLFW/include"));
+    clibs_mod.addIncludePath(b.path("thirdparty/wl"));
 
     if (target.result.os.tag == .windows) {
-        const sdl_dep = b.dependency("sdl", .{
-            .target = target,
-            .optimize = optimize,
-            .preferred_linkage = .static,
-            .lto = optimize != .Debug,
+        clibs_mod.linkSystemLibrary("gdi32", .{ .needed = true });
+        clibs_mod.linkSystemLibrary("dwmapi", .{ .needed = true });
+        clibs_mod.linkSystemLibrary("winmm", .{ .needed = true });
+
+        clibs_mod.addCSourceFiles(.{
+            .files = &[_][]const u8{
+                // common
+                "thirdparty/GLFW/src/context.c",
+                "thirdparty/GLFW/src/init.c",
+                "thirdparty/GLFW/src/input.c",
+                "thirdparty/GLFW/src/monitor.c",
+                "thirdparty/GLFW/src/platform.c",
+                "thirdparty/GLFW/src/vulkan.c",
+                "thirdparty/GLFW/src/window.c",
+                "thirdparty/GLFW/src/egl_context.c",
+                "thirdparty/GLFW/src/osmesa_context.c",
+                "thirdparty/GLFW/src/null_init.c",
+                "thirdparty/GLFW/src/null_monitor.c",
+                "thirdparty/GLFW/src/null_window.c",
+                "thirdparty/GLFW/src/null_joystick.c",
+
+                "thirdparty/GLFW/src/win32_module.c",
+                "thirdparty/GLFW/src/win32_time.c",
+                "thirdparty/GLFW/src/win32_thread.c",
+
+                "thirdparty/GLFW/src/win32_init.c",
+                "thirdparty/GLFW/src/win32_joystick.c",
+                "thirdparty/GLFW/src/win32_monitor.c",
+                "thirdparty/GLFW/src/win32_window.c",
+                "thirdparty/GLFW/src/wgl_context.c",
+            },
+            .flags = &[_][]const u8{
+                "-D_GLFW_WIN32",
+            },
         });
-        const sdl_lib = sdl_dep.artifact("SDL3");
-        exe.linkLibrary(sdl_lib);
+    } else if (target.result.os.tag == .linux) {
+        clibs_mod.addCSourceFiles(.{
+            .files = &[_][]const u8{
+                // common
+                "thirdparty/GLFW/src/context.c",
+                "thirdparty/GLFW/src/init.c",
+                "thirdparty/GLFW/src/input.c",
+                "thirdparty/GLFW/src/monitor.c",
+                "thirdparty/GLFW/src/platform.c",
+                "thirdparty/GLFW/src/vulkan.c",
+                "thirdparty/GLFW/src/window.c",
+                "thirdparty/GLFW/src/egl_context.c",
+                "thirdparty/GLFW/src/osmesa_context.c",
+                "thirdparty/GLFW/src/null_init.c",
+                "thirdparty/GLFW/src/null_monitor.c",
+                "thirdparty/GLFW/src/null_window.c",
+                "thirdparty/GLFW/src/null_joystick.c",
+
+                "thirdparty/GLFW/src/posix_module.c",
+                "thirdparty/GLFW/src/posix_time.c",
+                "thirdparty/GLFW/src/posix_thread.c",
+                "thirdparty/GLFW/src/linux_joystick.c",
+                "thirdparty/GLFW/src/posix_poll.c",
+
+                "thirdparty/GLFW/src/wl_init.c",
+                "thirdparty/GLFW/src/wl_monitor.c",
+                "thirdparty/GLFW/src/wl_window.c",
+
+                "thirdparty/GLFW/src/wgl_context.c",
+            },
+            .flags = &[_][]const u8{
+                "-D_GLFW_WAYLAND",
+            },
+        });
     } else {
-        @import("zsdl").link_SDL3(exe);
+        @panic("Unsupported OS");
     }
+
+    exe.root_module.addImport("c", clibs_mod);
 
     //=================================================================================================================
     // Vulkan
