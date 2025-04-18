@@ -206,7 +206,6 @@ pub const Renderer = struct {
     }
 
     pub fn resize(self: *Renderer) !void {
-        std.log.debug("Resizing", .{});
         self.context.device.deviceWaitIdle() catch {};
         self.swapchain.deinit(self.context.device);
         self.swapchain.init(&self.context) catch |err| {
