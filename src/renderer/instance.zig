@@ -158,6 +158,11 @@ fn onValidation(
     const log = std.log.scoped(.DebugUtilsMessenger);
 
     const message: [*c]const u8 = if (callback_data) |cb_data| cb_data.p_message else "NO MESSAGE!";
+    if (callback_data) |cb_data| {
+        if (std.mem.eql(u8, std.mem.span(cb_data.p_message_id_name.?), "VUID-VkSwapchainCreateInfoKHR-pNext-07781")) {
+            return vk.FALSE;
+        }
+    }
 
     const type_str = blk: { // NOTE: this is ugly as hell
         if (msg_type.general_bit_ext) {

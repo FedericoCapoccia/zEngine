@@ -11,9 +11,10 @@ pub const Swapchain = struct {
     images: []vk.Image = undefined,
     image_views: []vk.ImageView = undefined,
 
-    pub fn init(swapchain: *Swapchain, ctx: *VulkanContext, win_extent: vk.Extent2D) !void {
+    pub fn init(swapchain: *Swapchain, ctx: *VulkanContext) !void {
         const details = try querySwapchainDetails(ctx);
         const props = details.capabilities;
+        const win_extent = ctx.window.getSize();
 
         const image_count = blk: {
             const desired_count = props.min_image_count + 1;
