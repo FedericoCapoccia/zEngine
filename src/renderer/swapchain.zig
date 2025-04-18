@@ -33,7 +33,7 @@ pub const Swapchain = struct {
             .image_color_space = details.format.color_space,
             .image_extent = win_extent,
             .image_array_layers = 1,
-            .image_usage = .{ .color_attachment_bit = true },
+            .image_usage = .{ .color_attachment_bit = true, .transfer_dst_bit = true },
             .image_sharing_mode = .exclusive,
             .pre_transform = props.current_transform,
             .composite_alpha = .{ .opaque_bit_khr = true },

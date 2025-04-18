@@ -32,6 +32,10 @@ pub fn main() !void {
             resize_requested = false;
         }
 
+        engine.renderer.draw() catch |err| {
+            std.log.err("Failed to draw: {s}", .{@errorName(err)});
+        };
+
         while (sdl.pollEvent(&event)) {
             switch (event.type) {
                 .quit => running = false,

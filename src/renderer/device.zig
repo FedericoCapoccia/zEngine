@@ -41,7 +41,15 @@ pub fn create(ctx: *VulkanContext) !void {
     }
 
     const features = vk.PhysicalDeviceFeatures{};
-    const dynamic_rendering_feature = vk.PhysicalDeviceDynamicRenderingFeatures{ .dynamic_rendering = 1 };
+    const timeline_semaphore_feature = vk.PhysicalDeviceTimelineSemaphoreFeatures{ .timeline_semaphore = 1 };
+    const dynamic_rendering_feature = vk.PhysicalDeviceDynamicRenderingFeatures{
+        .dynamic_rendering = 1,
+        .p_next = @ptrCast(@constCast(&timeline_semaphore_feature)),
+    };
+    const sync2_feature = vk.PhysicalDeviceSynchronization2Features{
+        .synchronization_2 = 1,
+        .p_next = @ptrCast(@constCast(&dynamic_rendering_feature)),
+    };
 
     const info = vk.DeviceCreateInfo{
         .p_enabled_features = &features,
@@ -49,7 +57,7 @@ pub fn create(ctx: *VulkanContext) !void {
         .queue_create_info_count = @intCast(queue_infos.items.len),
         .pp_enabled_extension_names = &GpuDetails.extensions,
         .enabled_extension_count = @intCast(GpuDetails.extensions.len),
-        .p_next = &dynamic_rendering_feature,
+        .p_next = &sync2_feature,
     };
 
     const handle = try ctx.instance.createDevice(ctx.gpu, &info, null);
