@@ -41,12 +41,15 @@ pub fn create(ctx: *VulkanContext) !void {
     }
 
     const features = vk.PhysicalDeviceFeatures{};
+    const dynamic_rendering_feature = vk.PhysicalDeviceDynamicRenderingFeatures{ .dynamic_rendering = 1 };
+
     const info = vk.DeviceCreateInfo{
         .p_enabled_features = &features,
         .p_queue_create_infos = queue_infos.items.ptr,
         .queue_create_info_count = @intCast(queue_infos.items.len),
         .pp_enabled_extension_names = &GpuDetails.extensions,
         .enabled_extension_count = @intCast(GpuDetails.extensions.len),
+        .p_next = &dynamic_rendering_feature,
     };
 
     const handle = try ctx.instance.createDevice(ctx.gpu, &info, null);

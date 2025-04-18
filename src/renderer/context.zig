@@ -26,9 +26,6 @@ pub const VulkanContext = struct {
     gpu_details: core.gpu.Details = undefined,
 
     device: vk.DeviceProxy = undefined,
-    graphics_queue: vk.Queue = .null_handle,
-    compute_queue: vk.Queue = .null_handle,
-    transfer_queue: vk.Queue = .null_handle,
 
     vma: c.VmaAllocator = undefined,
 
