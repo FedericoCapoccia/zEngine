@@ -188,7 +188,7 @@ pub const Renderer = struct {
             .p_image_indices = @ptrCast(&swapchain_image_index),
         };
 
-        _ = try frame.device.queuePresentKHR(self.graphics_queue, &present_info);
+        _ = try frame.device.queuePresentKHR(self.graphics_queue, &present_info); // FIXME: check for out of date result and resize
 
         self._frame_counter += 1;
     }
