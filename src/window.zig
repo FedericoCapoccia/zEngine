@@ -19,6 +19,13 @@ pub const Window = struct {
         c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
         window.handle = c.glfwCreateWindow(width, height, title, null, null).?;
         window.title = title;
+
+        if (builtin.target.os.tag == .windows) {
+            const native = @import("c").win_native;
+            const hwnd = native.glfwGetWin32Window(@ptrCast(window.handle));
+            const dark: native.BOOL = native.TRUE;
+            _ = native.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
+        }
     }
 
     pub fn shutdown(self: *const Window) void {

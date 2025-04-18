@@ -41,6 +41,9 @@ pub fn build(b: *std.Build) !void {
             const vulkan_sdk = env.get("VULKAN_SDK") orelse @panic("Failed to retrieve VULKAN_SDK env var");
             exe.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable });
             exe.linkSystemLibrary("vulkan-1");
+            exe.linkSystemLibrary("gdi32");
+            exe.linkSystemLibrary("dwmapi");
+            exe.linkSystemLibrary("winmm");
         },
         .linux => exe.linkSystemLibrary("vulkan"),
         else => @panic("Unsupported OS"),
