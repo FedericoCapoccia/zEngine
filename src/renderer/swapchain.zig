@@ -12,8 +12,6 @@ pub const Swapchain = struct {
     image_views: []vk.ImageView = undefined,
 
     pub fn init(swapchain: *Swapchain, ctx: *VulkanContext) !void {
-        std.log.debug("Creating swapchain", .{});
-
         const details = try querySwapchainDetails(ctx);
         const props = details.capabilities;
         const win_extent = ctx.window.getSize();
@@ -60,8 +58,6 @@ pub const Swapchain = struct {
     }
 
     pub fn deinit(self: *Swapchain, device: vk.DeviceProxy) void {
-        std.log.debug("Destroying swapchain", .{});
-
         for (self.image_views) |view| {
             device.destroyImageView(view, null);
         }
