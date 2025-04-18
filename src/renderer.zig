@@ -5,6 +5,7 @@ const vk = @import("vulkan");
 
 const VulkanContext = @import("renderer/context.zig").VulkanContext;
 const core = @import("renderer/core.zig");
+const utils = @import("renderer/utils.zig");
 const Window = @import("window.zig").Window;
 
 const MAX_FRAMES_IN_FLIGHT = 2;
@@ -17,20 +18,15 @@ const FrameData = struct {
     pub fn init(frame: *FrameData, ctx: *const VulkanContext) !void {
         frame.device = ctx.device;
 
-        const pool_info = vk.CommandPoolCreateInfo{
-            .flags = .{ .reset_command_buffer_bit = true, .transient_bit = true },
-            .queue_family_index = ctx.gpu_details.graphics_qfamily,
-        };
+        const pool_info = utils.commandPoolCreateInfo(
+            ctx.gpu_details.graphics_qfamily,
+            .{ .reset_command_buffer_bit = true, .transient_bit = true },
+        );
 
         frame.command_pool = try frame.device.createCommandPool(&pool_info, null);
         errdefer frame.device.destroyCommandPool(frame.command_pool, null);
 
-        const buff_info = vk.CommandBufferAllocateInfo{
-            .command_pool = frame.command_pool,
-            .command_buffer_count = 1,
-            .level = .primary,
-        };
-
+        const buff_info = utils.commandBufferAllocateInfo(frame.command_pool, 1);
         try frame.device.allocateCommandBuffers(&buff_info, @ptrCast(&frame.command_buffer));
     }
 
@@ -88,7 +84,11 @@ pub const Renderer = struct {
 
         for (renderer._frames, 0..) |_, idx| {
             try renderer._frames[idx].init(&renderer.context);
-            errdefer renderer._frames[idx].destroy();
+        }
+        errdefer {
+            for (renderer._frames, 0..) |_, idx| {
+                renderer._frames[idx].destroy();
+            }
         }
 
         // TODO: allocate big image to draw on
