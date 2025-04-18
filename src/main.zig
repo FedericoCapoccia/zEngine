@@ -31,17 +31,20 @@ pub fn main() !void {
 
     while (c.glfwWindowShouldClose(engine.window.handle) == 0) {
         if (resize_requested) {
-            engine.renderer.resize() catch |err| {
+            var width: i32 = undefined;
+            var height: i32 = undefined;
+            c.glfwGetFramebufferSize(engine.window.handle, &width, &height);
+            engine.renderer.request_resize(width, height) catch |err| {
                 std.log.err("Failed to resize: {s}", .{@errorName(err)});
                 return err;
             };
             resize_requested = false;
         }
 
+        c.glfwPollEvents();
+
         engine.renderer.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});
         };
-
-        c.glfwPollEvents();
     }
 }

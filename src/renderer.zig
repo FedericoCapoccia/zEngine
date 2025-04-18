@@ -73,6 +73,7 @@ pub const Renderer = struct {
     context: VulkanContext = undefined,
 
     swapchain: core.swapchain.Swapchain = undefined,
+    window_extent: vk.Extent2D = undefined,
 
     graphics_queue: vk.Queue = .null_handle,
     compute_queue: vk.Queue = .null_handle,
@@ -97,10 +98,12 @@ pub const Renderer = struct {
         };
         errdefer renderer.context.shutdown();
 
+        renderer.window_extent = renderer.window.getSize();
+
         renderer.swapchain = core.swapchain.Swapchain{
             .allocator = renderer.allocator,
         };
-        renderer.swapchain.init(&renderer.context) catch |err| {
+        renderer.swapchain.init(&renderer.context, renderer.window_extent) catch |err| {
             std.log.err("Failed to create swapchain: {s}", .{@errorName(err)});
             return err;
         };
@@ -205,10 +208,17 @@ pub const Renderer = struct {
         self.context.shutdown();
     }
 
-    pub fn resize(self: *Renderer) !void {
+    pub fn request_resize(self: *Renderer, width: i32, height: i32) !void {
+        self.context.device.deviceWaitIdle() catch {};
+        self.window_extent.width = @intCast(width);
+        self.window_extent.height = @intCast(height);
+        try self.resize();
+    }
+
+    fn resize(self: *Renderer) !void {
         self.context.device.deviceWaitIdle() catch {};
         self.swapchain.deinit(self.context.device);
-        self.swapchain.init(&self.context) catch |err| {
+        self.swapchain.init(&self.context, self.window_extent) catch |err| {
             std.log.err("Failed to recreate swapchain: {s}", .{@errorName(err)});
             return err;
         };
