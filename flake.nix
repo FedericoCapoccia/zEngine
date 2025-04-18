@@ -24,7 +24,7 @@
           wayland
           wayland-protocols
 
-          libdecor
+          # libdecor
           libxkbcommon
           glfw
         ];
