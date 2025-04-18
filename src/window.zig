@@ -14,6 +14,7 @@ pub const Window = struct {
 
     pub fn init(window: *Window, width: i32, height: i32, title: [*:0]const u8) !void {
         std.log.info("Initializing window", .{});
+        _ = sdl.setHint("SDL_VIDEO_DRIVER", "wayland");
         try sdl.init(.{ .video = true });
         window.title = title;
         window.handle = try sdl.createWindow(title, width, height, .{
