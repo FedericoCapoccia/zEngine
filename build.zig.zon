@@ -8,6 +8,10 @@
             .url = "https://github.com/Snektron/vulkan-zig/archive/master.tar.gz",
             .hash = "vulkan-0.0.0-r7Ytx2dUAwDhoUvuIqliqPUbyDZZi0bl_CQIwspUpHs_",
         },
+        .zglfw = .{
+            .url = "git+https://github.com/zig-gamedev/zglfw?ref=main#75ab44d1bff1c16585ceeacf2db5d7909afefa83",
+            .hash = "zglfw-0.10.0-dev-zgVDNN6bIQDOl1vEb15vC3PJ1Nrg8cP1m3DFJlDOzhgd",
+        },
     },
     .paths = .{
         "build.zig",

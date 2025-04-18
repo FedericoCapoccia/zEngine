@@ -123,7 +123,6 @@ pub const Renderer = struct {
     }
 
     pub fn draw(self: *Renderer) !void {
-        std.log.info("Drawing frame n: {d}", .{self._frame_counter});
         const frame = self.getCurrentFrame();
 
         _ = try frame.device.waitForFences(1, @ptrCast(&frame.render_fence), vk.TRUE, std.math.maxInt(u64));

@@ -5,6 +5,4 @@ zig-out/
 .zig-cache/
 
 .direnv/
-thirdparty/GLFW
-thirdparty/VMA
-thirdparty/VulkanHeaders
+thirdparty/*

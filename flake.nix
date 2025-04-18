@@ -23,6 +23,13 @@
 
           wayland
           wayland-protocols
+          wayland-scanner
+          xorg.libX11
+          xorg.libXrandr
+          xorg.libXinerama
+          xorg.libXcursor
+          xorg.xinput
+          xorg.libXi
 
           # libdecor
           libxkbcommon
