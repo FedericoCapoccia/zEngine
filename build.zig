@@ -25,7 +25,11 @@ pub fn build(b: *std.Build) !void {
     clibs_mod.addIncludePath(b.path("thirdparty/GLFW/include"));
     clibs_mod.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
 
-    const zglfw = b.dependency("zglfw", .{});
+    const zglfw = b.dependency("zglfw", .{
+        .x11 = false,
+        .wayland = true,
+    });
+
     if (target.result.os.tag != .emscripten) {
         exe.linkLibrary(zglfw.artifact("glfw"));
     }

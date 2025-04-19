@@ -134,7 +134,13 @@ pub const Renderer = struct {
             std.math.maxInt(u64),
             frame.swapchain_semaphore,
             .null_handle,
-        ) catch unreachable;
+        ) catch |err| {
+            if (err == error.OutOfDateKHR) {
+                try self.resize();
+                return;
+            }
+            return err;
+        };
         const swapchain_image_index = acquire.image_index;
 
         if (acquire.result == vk.Result.error_out_of_date_khr) {
@@ -188,7 +194,14 @@ pub const Renderer = struct {
             .p_image_indices = @ptrCast(&swapchain_image_index),
         };
 
-        const res = frame.device.queuePresentKHR(self.graphics_queue, &present_info) catch unreachable;
+        const res = frame.device.queuePresentKHR(self.graphics_queue, &present_info) catch |err| {
+            if (err == error.OutOfDateKHR) {
+                try self.resize();
+                self._frame_counter += 1;
+                return;
+            }
+            return err;
+        };
 
         if (res == vk.Result.suboptimal_khr or res == vk.Result.error_out_of_date_khr) {
             try self.resize();
