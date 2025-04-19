@@ -18,6 +18,8 @@ fn onResize(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) vo
     _ = height;
 }
 
+// const show_demo_window: bool = true;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -39,6 +41,13 @@ pub fn main() !void {
         }
 
         c.glfwPollEvents();
+
+        // c.cImGui_ImplVulkan_NewFrame();
+        // c.cImGui_ImplGlfw_NewFrame();
+        // c.ImGui_NewFrame();
+
+        // c.ImGui_ShowDemoWindow(@ptrCast(@constCast(&show_demo_window)));
+        // c.ImGui_Render();
 
         engine.renderer.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});

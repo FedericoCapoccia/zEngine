@@ -93,6 +93,7 @@ pub const Renderer = struct {
     // -- core.device
     device: vk.DeviceProxy = undefined,
     queues: core.device.QueueBundle = undefined,
+    // imgui_pool: vk.DescriptorPool = .null_handle,
 
     // Rendering infrastructure
     swapchain: core.swapchain.Swapchain = undefined,
@@ -151,6 +152,8 @@ pub const Renderer = struct {
                 self.frames[idx].deinit();
             }
         }
+
+        // try init_imgui(self);
     }
     // const vma_info = c.VmaAllocatorCreateInfo{
     //         .vulkanApiVersion = c.VK_API_VERSION_1_4,
@@ -278,3 +281,55 @@ pub const Renderer = struct {
         self.frame_counter += 1;
     }
 };
+
+// fn init_imgui(self: *Renderer) !void {
+//     const pool_sizes = [_]vk.DescriptorPoolSize{
+//         vk.DescriptorPoolSize{ .type = .sampler, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .combined_image_sampler, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .sampled_image, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .storage_image, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .uniform_texel_buffer, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .storage_texel_buffer, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .uniform_buffer, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .storage_buffer, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .uniform_buffer_dynamic, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .storage_buffer_dynamic, .descriptor_count = 1000 },
+//         vk.DescriptorPoolSize{ .type = .input_attachment, .descriptor_count = 1000 },
+//     };
+//
+//     const pool_create_info = vk.DescriptorPoolCreateInfo{
+//         .flags = .{ .free_descriptor_set_bit = true },
+//         .max_sets = 1000,
+//         .pool_size_count = @intCast(pool_sizes.len),
+//         .p_pool_sizes = @ptrCast(&pool_sizes[0]),
+//     };
+//
+//     self.imgui_pool = try self.device.createDescriptorPool(&pool_create_info, null);
+//
+//     _ = c.ImGui_CreateContext(null);
+//     _ = c.cImGui_ImplGlfw_InitForVulkan(self.window.handle, false);
+//
+//     const pipeline_info = c.VkPipelineRenderingCreateInfo{
+//         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+//         .pNext = null,
+//         .colorAttachmentCount = 1,
+//         .pColorAttachmentFormats = @ptrCast(&self.swapchain.format),
+//     };
+//
+//     const init_info = c.ImGui_ImplVulkan_InitInfo{
+//         .Instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
+//         .PhysicalDevice = @ptrFromInt(@intFromEnum(self.pdev)),
+//         .Device = @ptrFromInt(@intFromEnum(self.device.handle)),
+//         .QueueFamily = self.qfamilies.graphics,
+//         .Queue = @ptrFromInt(@intFromEnum(self.queues.graphics)),
+//         .DescriptorPool = @ptrFromInt(@intFromEnum(self.imgui_pool)),
+//         .MinImageCount = MAX_FRAMES_IN_FLIGHT,
+//         .ImageCount = MAX_FRAMES_IN_FLIGHT,
+//         .MSAASamples = c.VK_SAMPLE_COUNT_1_BIT,
+//         .UseDynamicRendering = true,
+//         .PipelineRenderingCreateInfo = pipeline_info,
+//     };
+//
+//     _ = c.cImGui_ImplVulkan_Init(@ptrCast(@constCast(&init_info)));
+//     _ = c.cImGui_ImplVulkan_CreateFontsTexture();
+// }
