@@ -20,6 +20,8 @@ pub const Window = struct {
         window.handle = c.glfwCreateWindow(width, height, title, null, null).?;
         window.title = title;
 
+        _ = c.glfwSetWindowSizeLimits(window.handle, 200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
+
         if (builtin.target.os.tag == .windows) {
             const native = @cImport({
                 @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {});
