@@ -129,12 +129,12 @@ pub const Renderer = struct {
         try frame.device.resetFences(1, @ptrCast(&frame.render_fence));
 
         // TODO: acquire next swapchain image index
-        const acquire = try frame.device.acquireNextImageKHR(
+        const acquire = frame.device.acquireNextImageKHR(
             self.swapchain.handle,
             std.math.maxInt(u64),
             frame.swapchain_semaphore,
             .null_handle,
-        );
+        ) catch unreachable;
         const swapchain_image_index = acquire.image_index;
 
         if (acquire.result == vk.Result.error_out_of_date_khr) {
@@ -188,7 +188,11 @@ pub const Renderer = struct {
             .p_image_indices = @ptrCast(&swapchain_image_index),
         };
 
-        _ = try frame.device.queuePresentKHR(self.graphics_queue, &present_info); // FIXME: check for out of date result and resize
+        const res = frame.device.queuePresentKHR(self.graphics_queue, &present_info) catch unreachable;
+
+        if (res == vk.Result.suboptimal_khr or res == vk.Result.error_out_of_date_khr) {
+            try self.resize();
+        }
 
         self._frame_counter += 1;
     }
