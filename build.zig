@@ -19,6 +19,7 @@ pub fn build(b: *std.Build) !void {
     exe.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
     exe.addIncludePath(b.path("thirdparty/VMA/include"));
     exe.addIncludePath(b.path("thirdparty/GLFW/include"));
+    exe.addIncludePath(b.path("thirdparty/imgui"));
     exe.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
 
     const zglfw = b.dependency("zglfw", .{
@@ -29,6 +30,34 @@ pub fn build(b: *std.Build) !void {
     if (target.result.os.tag != .emscripten) {
         exe.linkLibrary(zglfw.artifact("glfw"));
     }
+
+    const imgui_lib = b.addStaticLibrary(.{
+        .name = "cimgui",
+        .target = target,
+        .optimize = optimize,
+    });
+    imgui_lib.addIncludePath(b.path("thirdparty/imgui"));
+    imgui_lib.addIncludePath(b.path("thirdparty/GLFW/include"));
+    imgui_lib.linkLibCpp();
+    imgui_lib.addCSourceFiles(.{
+        .files = &.{
+            "thirdparty/imgui/imgui.cpp",
+            "thirdparty/imgui/imgui_demo.cpp",
+            "thirdparty/imgui/imgui_draw.cpp",
+            "thirdparty/imgui/imgui_tables.cpp",
+            "thirdparty/imgui/imgui_widgets.cpp",
+            "thirdparty/imgui/backends/imgui_impl_glfw.cpp",
+            "thirdparty/imgui/backends/imgui_impl_vulkan.cpp",
+        },
+        .flags = &.{"-DGLFW_INCLUDE_NONE"},
+    });
+    if (target.result.os.tag == .windows) {
+        const vulkan_sdk = env.get("VULKAN_SDK") orelse @panic("Failed to retrieve VULKAN_SDK env var");
+        imgui_lib.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable });
+    }
+
+    imgui_lib.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+    exe.linkLibrary(imgui_lib);
 
     //=================================================================================================================
     // Vulkan
