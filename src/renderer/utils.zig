@@ -50,15 +50,15 @@ pub fn transitionImage(
         .new_layout = dst,
         .subresource_range = imageSubresourceRange(aspect_mask),
         .image = image,
-        .src_queue_family_index = frame.qfamily,
-        .dst_queue_family_index = frame.qfamily,
+        .src_queue_family_index = frame.queue_family,
+        .dst_queue_family_index = frame.queue_family,
     };
 
     const info = vk.DependencyInfo{
         .image_memory_barrier_count = 1,
         .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
     };
-    frame.device.cmdPipelineBarrier2(frame.command_buffer, &info);
+    frame.device.cmdPipelineBarrier2(frame.cmd, &info);
     // FIXME: https://vkguide.dev/docs/new_chapter_1/vulkan_mainloop_code/
     // Once we have the range and the barrier, we pack them into a VkDependencyInfo struct and call VkCmdPipelineBarrier2.
     // It is possible to layout transitions multiple images at once by sending more imageMemoryBarriers

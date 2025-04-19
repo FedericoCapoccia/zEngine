@@ -3,57 +3,44 @@ const Allocator = std.mem.Allocator;
 
 const vk = @import("vulkan");
 
-const VulkanContext = @import("context.zig").VulkanContext;
+const Renderer = @import("../renderer.zig").Renderer;
 
-pub const Details = struct {
-    pub const extensions = [_][*:0]const u8{
-        vk.extensions.khr_swapchain.name,
-        vk.extensions.khr_dynamic_rendering.name,
-        vk.extensions.khr_synchronization_2.name,
-        vk.extensions.khr_timeline_semaphore.name,
-    };
-    props: vk.PhysicalDeviceProperties,
-    graphics_qfamily: u32,
-    compute_qfamily: u32,
-    transfer_qfamility: u32,
-};
-
-pub fn select(ctx: *VulkanContext) !void {
+pub fn select(renderer: *Renderer) !void {
     std.log.debug("Selecting physical device", .{});
-    const devices = try ctx.instance.enumeratePhysicalDevicesAlloc(ctx.allocator);
-    defer ctx.allocator.free(devices);
+    const allocator = renderer.allocator;
+
+    const devices = try renderer.instance.enumeratePhysicalDevicesAlloc(allocator);
+    defer allocator.free(devices);
 
     var candidate: ?vk.PhysicalDevice = null;
     var max_score: u32 = 0;
-    var details: ?Details = null;
+    var cand_queues: ?QueueFamilyBundle = null;
 
     for (devices) |pdev| {
-        const props = ctx.instance.getPhysicalDeviceProperties(pdev);
+        const props = renderer.instance.getPhysicalDeviceProperties(pdev);
         const score = rate(props);
         std.log.info("Found PhysicalDevice [{s}] score: {d}", .{ props.device_name, score });
 
-        const has_ext_support = try supportsExtensions(pdev, ctx.instance, ctx.allocator);
+        const has_ext_support = try supportsExtensions(pdev, renderer.instance, allocator);
         if (!has_ext_support) continue;
 
-        const queues = try scanQueueFamilies(pdev, ctx.instance, ctx.allocator, ctx.surface);
+        const queues = try scanQueueFamilies(pdev, renderer.instance, allocator, renderer.surface);
 
         std.log.debug("---------------------------", .{});
 
         if (score > max_score) {
             max_score = score;
             candidate = pdev;
-            details = Details{
-                .props = props,
-                .graphics_qfamily = queues.graphics,
-                .compute_qfamily = queues.compute,
-                .transfer_qfamility = queues.transfer,
-            };
+            cand_queues = queues;
         }
     }
 
     if (candidate) |cand| {
-        ctx.gpu = cand;
-        ctx.gpu_details = details.?;
+        renderer.pdev = cand;
+        renderer.qfamilies = cand_queues.?;
+
+        const props = renderer.instance.getPhysicalDeviceProperties(cand);
+        std.log.info("Selected {s}", .{props.device_name});
         return;
     }
 
@@ -61,7 +48,7 @@ pub fn select(ctx: *VulkanContext) !void {
 }
 
 // by spec any queue that supports graphics or compute indirectly supports transfer aswell
-const QueueFamilyBundle = struct {
+pub const QueueFamilyBundle = struct {
     graphics: u32,
     compute: u32,
     transfer: u32,
@@ -148,7 +135,7 @@ fn supportsExtensions(pdev: vk.PhysicalDevice, instance: vk.InstanceProxy, alloc
 
     std.log.debug("Required Device Extensions", .{});
     var found: bool = false;
-    for (Details.extensions) |ext| {
+    for (Renderer.device_extensions) |ext| {
         found = false;
         for (properties) |props| {
             if (found) break;

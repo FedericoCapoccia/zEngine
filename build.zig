@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) !void {
     const env = try std.process.getEnvMap(b.allocator);
 
     const exe = b.addExecutable(.{
-        .name = "SimpleEngine",
+        .name = "zEngine",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -16,14 +16,10 @@ pub fn build(b: *std.Build) !void {
     });
     exe.linkLibCpp();
 
-    const clibs_mod = b.addModule("clibs", .{
-        .root_source_file = .{ .cwd_relative = "src/clibs.zig" },
-    });
-
-    clibs_mod.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
-    clibs_mod.addIncludePath(b.path("thirdparty/VMA/include"));
-    clibs_mod.addIncludePath(b.path("thirdparty/GLFW/include"));
-    clibs_mod.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
+    exe.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+    exe.addIncludePath(b.path("thirdparty/VMA/include"));
+    exe.addIncludePath(b.path("thirdparty/GLFW/include"));
+    exe.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
 
     const zglfw = b.dependency("zglfw", .{
         .x11 = false,
@@ -33,8 +29,6 @@ pub fn build(b: *std.Build) !void {
     if (target.result.os.tag != .emscripten) {
         exe.linkLibrary(zglfw.artifact("glfw"));
     }
-
-    exe.root_module.addImport("c", clibs_mod);
 
     //=================================================================================================================
     // Vulkan

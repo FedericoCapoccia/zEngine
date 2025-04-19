@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const vk = @import("vulkan");
-const c = @import("c").c;
+const c = @import("clibs.zig").c;
 pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
 const core = @import("renderer/core.zig");
@@ -21,7 +21,13 @@ pub const Window = struct {
         window.title = title;
 
         if (builtin.target.os.tag == .windows) {
-            const native = @import("c").win_native;
+            const native = @cImport({
+                @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {});
+                @cInclude("GLFW/glfw3.h");
+                @cInclude("GLFW/glfw3native.h");
+                @cInclude("dwmapi.h");
+            });
+
             const hwnd = native.glfwGetWin32Window(@ptrCast(window.handle));
             const dark: native.BOOL = native.TRUE;
             _ = native.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
@@ -34,7 +40,7 @@ pub const Window = struct {
         c.glfwTerminate();
     }
 
-    pub fn getSize(self: *const Window) vk.Extent2D {
+    pub fn getFramebufferSize(self: *const Window) vk.Extent2D {
         var width: i32 = undefined;
         var height: i32 = undefined;
         c.glfwGetFramebufferSize(self.handle, &width, &height);

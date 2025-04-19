@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const c = @import("c").c;
+const c = @import("clibs.zig").c;
 
 const Engine = @import("engine.zig").Engine;
 const log_fn = @import("log.zig");
