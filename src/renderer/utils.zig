@@ -32,6 +32,7 @@ pub fn transitionImage(
     image: vk.Image,
     src: vk.ImageLayout,
     dst: vk.ImageLayout,
+    qfam: u32,
 ) void {
     const aspect_mask: vk.ImageAspectFlags = b: {
         if (dst == .depth_attachment_optimal) {
@@ -50,8 +51,8 @@ pub fn transitionImage(
         .new_layout = dst,
         .subresource_range = imageSubresourceRange(aspect_mask),
         .image = image,
-        .src_queue_family_index = frame.queue_family,
-        .dst_queue_family_index = frame.queue_family,
+        .src_queue_family_index = qfam,
+        .dst_queue_family_index = qfam,
     };
 
     const info = vk.DependencyInfo{

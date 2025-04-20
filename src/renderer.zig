@@ -16,19 +16,17 @@ const enable_validation: bool = switch (builtin.mode) {
 const MAX_FRAMES_IN_FLIGHT = 2;
 
 pub const FrameData = struct {
-    device: *const vk.DeviceProxy,
-    swapchain: *const core.swapchain.Swapchain,
-    queue_family: u32, // NOTE: idk if I should keep it there
-    queue: vk.Queue, // NOTE: same
+    device: vk.DeviceProxy = undefined,
     pool: vk.CommandPool = .null_handle,
     cmd: vk.CommandBuffer = .null_handle,
     image_acquired: vk.Semaphore = .null_handle,
     render_finished_sem: vk.Semaphore = .null_handle,
     render_finished_fen: vk.Fence = .null_handle,
 
-    pub fn init(self: *FrameData) !void {
+    pub fn init(self: *FrameData, renderer: *const Renderer) !void {
+        self.device = renderer.device;
         const pool_info = vk.CommandPoolCreateInfo{
-            .queue_family_index = self.queue_family,
+            .queue_family_index = renderer.qfamilies.graphics,
             .flags = .{ .reset_command_buffer_bit = true, .transient_bit = true },
         };
         self.pool = try self.device.createCommandPool(&pool_info, null);
@@ -139,13 +137,8 @@ pub const Renderer = struct {
         try self.swapchain.create(self);
 
         for (self.frames, 0..) |_, idx| {
-            self.frames[idx] = FrameData{
-                .device = &self.device,
-                .swapchain = &self.swapchain,
-                .queue_family = self.qfamilies.graphics,
-                .queue = self.queues.graphics,
-            };
-            try self.frames[idx].init();
+            self.frames[idx] = FrameData{};
+            try self.frames[idx].init(self);
         }
         errdefer {
             for (self.frames, 0..) |_, idx| {
@@ -196,30 +189,31 @@ pub const Renderer = struct {
 
     pub fn draw(self: *Renderer) !void {
         const frame = self.getCurrentFrame();
+        var should_resize = false;
 
         _ = try frame.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
         try frame.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
-        // TODO: acquire next swapchain image index
         const acquire = frame.device.acquireNextImageKHR(
             self.swapchain.handle,
             std.math.maxInt(u64),
             frame.image_acquired,
             .null_handle,
         ) catch |err| {
-            if (err == error.OutOfDateKHR) {
-                try self.resize();
-                return;
+            if (err != error.OutOfDateKHR) {
+                std.log.err("Failed to acquire next image from swapchain: {s}", .{@errorName(err)});
+                return error.SwapchainImageAcquireFailed;
             }
-            return err;
+            try self.resize();
+            return;
         };
         const swapchain_image_index = acquire.image_index;
 
-        if (acquire.result == vk.Result.error_out_of_date_khr) {
-            try self.resize();
-            return;
-        } else if (acquire.result != vk.Result.success and acquire.result != vk.Result.suboptimal_khr) {
-            return error.FailedToAcquireSwapchainImage;
+        switch (acquire.result) {
+            vk.Result.suboptimal_khr => should_resize = true,
+            vk.Result.timeout => std.log.warn("vkAcquireNextImageKHR timeout", .{}),
+            vk.Result.not_ready => std.log.warn("vkAcquireNextImageKHR not ready", .{}),
+            else => {},
         }
 
         const image = self.swapchain.images[swapchain_image_index];
@@ -231,18 +225,11 @@ pub const Renderer = struct {
 
         try frame.device.beginCommandBuffer(frame.cmd, &begin_info);
 
-        utils.transitionImage(frame, image, .undefined, .general);
+        utils.transitionImage(frame, image, .undefined, .general, self.qfamilies.graphics);
 
-        const balls: f32 = @floatFromInt(self.frame_counter);
-        const flash = @abs(@sin(balls / 120.0));
-        const porcodio: [4]f32 = .{ 0.0, 0.0, flash, 1.0 };
-        const clear_value = vk.ClearColorValue{ .float_32 = porcodio };
+        clear_background(frame.cmd, frame.device, image);
 
-        const clear_range = utils.imageSubresourceRange(.{ .color_bit = true });
-
-        frame.device.cmdClearColorImage(frame.cmd, image, .general, &clear_value, 1, @ptrCast(&clear_range));
-
-        utils.transitionImage(frame, image, .general, .present_src_khr);
+        utils.transitionImage(frame, image, .general, .present_src_khr, self.qfamilies.graphics);
 
         try frame.device.endCommandBuffer(frame.cmd);
 
@@ -255,7 +242,7 @@ pub const Renderer = struct {
         const sig_info = utils.semaphoreSubmitInfo(.{ .all_graphics_bit = true }, frame.render_finished_sem);
         const submit_info = utils.submitInfo(&cmd_submit_info, &sig_info, &wait_info);
 
-        try frame.device.queueSubmit2(frame.queue, 1, @ptrCast(&submit_info), frame.render_finished_fen);
+        try frame.device.queueSubmit2(self.queues.graphics, 1, @ptrCast(&submit_info), frame.render_finished_fen);
 
         const present_info = vk.PresentInfoKHR{
             .p_swapchains = @ptrCast(&self.swapchain.handle),
@@ -266,21 +253,29 @@ pub const Renderer = struct {
         };
 
         const res = frame.device.queuePresentKHR(self.queues.graphics, &present_info) catch |err| {
-            if (err == error.OutOfDateKHR) {
-                try self.resize();
-                self.frame_counter += 1;
-                return;
+            if (err != error.OutOfDateKHR) {
+                std.log.err("Failed to present on the queue: {s}", .{@errorName(err)});
+                return error.QueuePresentFailed;
             }
-            return err;
+
+            try self.resize();
+            self.frame_counter += 1;
+            return;
         };
 
-        if (res == vk.Result.suboptimal_khr or res == vk.Result.error_out_of_date_khr) {
+        if (res == vk.Result.suboptimal_khr or should_resize) {
             try self.resize();
         }
 
         self.frame_counter += 1;
     }
 };
+
+fn clear_background(cmd: vk.CommandBuffer, device: vk.DeviceProxy, image: vk.Image) void {
+    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 1.0, 1.0, 1.0 } };
+    const range = utils.imageSubresourceRange(.{ .color_bit = true });
+    device.cmdClearColorImage(cmd, image, .general, &value, 1, @ptrCast(&range));
+}
 
 // fn init_imgui(self: *Renderer) !void {
 //     const pool_sizes = [_]vk.DescriptorPoolSize{
