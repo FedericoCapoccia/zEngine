@@ -158,6 +158,28 @@ pub const Swapchain = struct {
         self.images = undefined;
         self.image_views = undefined;
     }
+
+    pub fn acquireNextImage(self: *Swapchain, semaphore: vk.Semaphore, fence: vk.Fence) !AcquireNextImageResult {
+        const result = self.device.acquireNextImageKHR(self.handle, std.math.maxInt(u64), semaphore, fence) catch |err| {
+            return switch (err) {
+                error.OutOfDateKHR => .{
+                    .result = vk.Result.error_out_of_date_khr,
+                    .index = 0,
+                },
+                else => err,
+            };
+        };
+
+        return .{
+            .result = result.result,
+            .index = result.image_index,
+        };
+    }
+};
+
+pub const AcquireNextImageResult = struct {
+    result: vk.Result,
+    index: u32,
 };
 
 fn createImageView(view: *vk.ImageView, image: vk.Image, format: vk.Format, device: *const vk.DeviceProxy) !void {

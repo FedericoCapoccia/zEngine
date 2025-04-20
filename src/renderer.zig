@@ -194,29 +194,23 @@ pub const Renderer = struct {
         _ = try frame.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
         try frame.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
-        const acquire = frame.device.acquireNextImageKHR(
-            self.swapchain.handle,
-            std.math.maxInt(u64),
-            frame.image_acquired,
-            .null_handle,
-        ) catch |err| {
-            if (err != error.OutOfDateKHR) {
-                std.log.err("Failed to acquire next image from swapchain: {s}", .{@errorName(err)});
-                return error.SwapchainImageAcquireFailed;
-            }
-            try self.resize();
-            return;
+        const acquire_result = self.swapchain.acquireNextImage(frame.image_acquired, .null_handle) catch |err| {
+            std.log.err("Failed to acquire next image from swapchain: {s}", .{@errorName(err)});
+            return error.AcquireNextSwapchainImageFailed;
         };
-        const swapchain_image_index = acquire.image_index;
 
-        switch (acquire.result) {
+        switch (acquire_result.result) {
+            vk.Result.error_out_of_date_khr => {
+                try self.resize();
+                return;
+            },
             vk.Result.suboptimal_khr => should_resize = true,
             vk.Result.timeout => std.log.warn("vkAcquireNextImageKHR timeout", .{}),
             vk.Result.not_ready => std.log.warn("vkAcquireNextImageKHR not ready", .{}),
             else => {},
         }
 
-        const image = self.swapchain.images[swapchain_image_index];
+        const image = self.swapchain.images[acquire_result.index];
         try frame.device.resetCommandBuffer(frame.cmd, .{});
 
         const begin_info = vk.CommandBufferBeginInfo{
@@ -249,7 +243,7 @@ pub const Renderer = struct {
             .swapchain_count = 1,
             .p_wait_semaphores = @ptrCast(&frame.render_finished_sem),
             .wait_semaphore_count = 1,
-            .p_image_indices = @ptrCast(&swapchain_image_index),
+            .p_image_indices = @ptrCast(&acquire_result.index),
         };
 
         const res = frame.device.queuePresentKHR(self.queues.graphics, &present_info) catch |err| {
