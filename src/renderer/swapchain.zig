@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
+const c = @import("../clibs.zig").c;
 
 const Renderer = @import("../renderer.zig").Renderer;
 
@@ -64,6 +65,7 @@ pub const Swapchain = struct {
     image_views: []vk.ImageView = undefined,
 
     pub fn create(self: *Swapchain, renderer: *Renderer) !void {
+        self.device.deviceWaitIdle() catch {};
         // If the handle is not null it means that we are trying to recreate the swapchain on a resize event or similar
         // In that case we save the old handle, we cleanup the image views, we free the images and image_views containers
         // after that, we reset the internal state of the swapchain and we create a new one,
@@ -89,7 +91,12 @@ pub const Swapchain = struct {
 
         const details = try Details.query(renderer);
         const capabilities = details.capabilities;
-        const current_extent = renderer.window.getFramebufferSize();
+        var current_extent = renderer.window.getFramebufferSize();
+
+        while (current_extent.width == 0 or current_extent.height == 0) {
+            current_extent = renderer.window.getFramebufferSize();
+            c.glfwWaitEvents();
+        }
 
         self.extent = choose_extent(current_extent, capabilities);
         self.format = details.format;
