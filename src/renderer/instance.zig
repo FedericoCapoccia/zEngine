@@ -36,11 +36,11 @@ pub fn create(renderer: *Renderer, validation: bool) !void {
     defer extensions.deinit();
     defer layers.deinit();
 
-    if (!try supportsLayers(available_layers, layers.items)) {
+    if (!supportsLayers(available_layers, layers.items)) {
         return error.LayerNotSupported;
     }
     std.log.debug("", .{});
-    if (!try supportsExtensions(available_extensions, extensions.items)) {
+    if (!supportsExtensions(available_extensions, extensions.items)) {
         return error.ExtensionNotSupported;
     }
     std.log.debug("---------------------------", .{});
@@ -76,8 +76,9 @@ pub fn destroy(renderer: *Renderer) void {
     renderer.instance = undefined;
 }
 
-fn supportsLayers(avail: []vk.LayerProperties, required: []const [*:0]const u8) !bool {
+fn supportsLayers(avail: []vk.LayerProperties, required: []const [*:0]const u8) bool {
     std.log.debug("Required Instance Layers:", .{});
+    if (required.len == 0) return true;
     var found: bool = false;
     for (required) |ext| {
         found = false;
@@ -96,8 +97,9 @@ fn supportsLayers(avail: []vk.LayerProperties, required: []const [*:0]const u8) 
     return found;
 }
 
-fn supportsExtensions(avail: []vk.ExtensionProperties, required: []const [*:0]const u8) !bool {
+fn supportsExtensions(avail: []vk.ExtensionProperties, required: []const [*:0]const u8) bool {
     std.log.debug("Required Instance Extensions:", .{});
+    if (required.len == 0) return true;
     var found: bool = false;
     for (required) |ext| {
         found = false;
