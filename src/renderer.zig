@@ -96,10 +96,10 @@ pub const Renderer = struct {
     // Rendering infrastructure
     swapchain: core.swapchain.Swapchain = undefined,
     frames: [MAX_FRAMES_IN_FLIGHT]FrameData = undefined,
-    frame_counter: u128 = 0,
+    current_frame: u8 = 0,
 
     fn getCurrentFrame(self: *const Renderer) *FrameData {
-        return @ptrCast(@constCast(&self.frames[@intCast(self.frame_counter % MAX_FRAMES_IN_FLIGHT)]));
+        return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % MAX_FRAMES_IN_FLIGHT)]));
     }
 
     pub fn init(self: *Renderer) !void {
@@ -259,7 +259,7 @@ pub const Renderer = struct {
             }
 
             try self.resize();
-            self.frame_counter += 1;
+            self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
             return;
         };
 
@@ -267,7 +267,7 @@ pub const Renderer = struct {
             try self.resize();
         }
 
-        self.frame_counter += 1;
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 };
 
