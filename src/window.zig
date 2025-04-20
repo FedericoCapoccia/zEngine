@@ -2,10 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const vk = @import("vulkan");
-const c = @import("clibs.zig").c;
-pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
+const c = @import("clibs.zig").c;
 const core = @import("renderer/core.zig");
+
+pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
 pub const Window = struct {
     handle: *c.GLFWwindow,

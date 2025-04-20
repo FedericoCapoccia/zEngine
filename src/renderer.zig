@@ -192,7 +192,6 @@ pub const Renderer = struct {
         var should_resize = false;
 
         _ = try frame.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
-        try frame.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
         const acquire_result = self.swapchain.acquireNextImage(frame.image_acquired, .null_handle) catch |err| {
             std.log.err("Failed to acquire next image from swapchain: {s}", .{@errorName(err)});
@@ -209,6 +208,10 @@ pub const Renderer = struct {
             vk.Result.not_ready => std.log.warn("vkAcquireNextImageKHR not ready", .{}),
             else => {},
         }
+
+        // IMPORTANT to be here see:
+        // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/04_Swap_chain_recreation.html#_fixing_a_deadlock
+        try frame.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
         const image = self.swapchain.images[acquire_result.index];
         try frame.device.resetCommandBuffer(frame.cmd, .{});
