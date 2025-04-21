@@ -4,6 +4,8 @@
 zig-out/
 .zig-cache/
 
+*.spv
+
 .direnv/
 thirdparty/VMA
 thirdparty/GLFW

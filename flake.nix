@@ -20,6 +20,7 @@
           vulkan-loader
           vulkan-validation-layers
           vulkan-tools
+          shaderc
 
           wayland
           wayland-protocols

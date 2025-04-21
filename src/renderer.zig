@@ -108,6 +108,9 @@ pub const Renderer = struct {
     draw_extent: vk.Extent2D,
     scale: f32 = 1.0,
 
+    triangle_pipeline: vk.Pipeline,
+    triangle_layout: vk.PipelineLayout,
+
     frames: [MAX_FRAMES_IN_FLIGHT]FrameData,
     current_frame: u8 = 0,
 
@@ -186,6 +189,39 @@ pub const Renderer = struct {
             c.vmaDestroyImage(vma, @ptrFromInt(@intFromEnum(draw_image.image)), draw_image.alloc);
         }
 
+        // NOTE: Pipeline stuff
+
+        const vertex_code align(4) = @embedFile("resources/shaders/triangle.vert.spv").*;
+        const fragment_code align(4) = @embedFile("resources/shaders/triangle.frag.spv").*;
+        const vert_mod = try create_shader_module(device, &vertex_code);
+        const frag_mod = try create_shader_module(device, &fragment_code);
+        defer device.destroyShaderModule(vert_mod, null);
+        defer device.destroyShaderModule(frag_mod, null);
+
+        const layout_create_info = vk.PipelineLayoutCreateInfo{
+            .set_layout_count = 0,
+            .p_set_layouts = null,
+            .push_constant_range_count = 0,
+            .p_push_constant_ranges = null,
+        };
+        const pip_layout = try device.createPipelineLayout(&layout_create_info, null);
+
+        const pipeline_info = core.pipeline.PipelineBuildInfo{
+            .topology = .triangle_list,
+            .polygon_mode = .fill,
+            .cull_mode = .{},
+            .front_face = .clockwise,
+            .depth_format = .undefined,
+            .color_format = draw_image.format,
+            .layout = pip_layout,
+            .fragment_module = frag_mod,
+            .vertex_module = vert_mod,
+        };
+
+        const pipeline = try core.pipeline.create_pipeline(device, pipeline_info);
+        // TODO: add errdefer for pipeline and layout
+
+        // NOTE: frame stuff
         var frames: [MAX_FRAMES_IN_FLIGHT]FrameData = .{FrameData{}} ** MAX_FRAMES_IN_FLIGHT;
 
         for (frames, 0..) |_, idx| {
@@ -218,6 +254,8 @@ pub const Renderer = struct {
                 .width = draw_image.extent.width,
                 .height = draw_image.extent.height,
             },
+            .triangle_pipeline = pipeline,
+            .triangle_layout = pip_layout,
         };
     }
 
@@ -227,6 +265,9 @@ pub const Renderer = struct {
         for (self.frames, 0..) |_, idx| {
             self.frames[idx].deinit(self.device);
         }
+
+        self.device.destroyPipelineLayout(self.triangle_layout, null);
+        self.device.destroyPipeline(self.triangle_pipeline, null);
 
         self.device.destroyImageView(self.draw_image.view, null);
         c.vmaDestroyImage(
@@ -301,7 +342,11 @@ pub const Renderer = struct {
 
         clear_background(frame.cmd, self.device, self.draw_image.image);
 
-        utils.transitionImage(self.device, frame, self.draw_image.image, .general, .transfer_src_optimal, self.qfamilies.graphics);
+        utils.transitionImage(self.device, frame, self.draw_image.image, .general, .color_attachment_optimal, self.qfamilies.graphics);
+
+        draw_geometry(frame.cmd, self.device, self.draw_image.view, self.draw_extent, self.triangle_pipeline);
+
+        utils.transitionImage(self.device, frame, self.draw_image.image, .color_attachment_optimal, .transfer_src_optimal, self.qfamilies.graphics);
         utils.transitionImage(self.device, frame, image, .undefined, .transfer_dst_optimal, self.qfamilies.graphics);
 
         utils.copy_image(self.device, frame.cmd, self.draw_image.image, image, self.draw_extent, self.swapchain.extent);
@@ -350,9 +395,75 @@ pub const Renderer = struct {
 };
 
 fn clear_background(cmd: vk.CommandBuffer, device: vk.DeviceProxy, image: vk.Image) void {
-    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 1.0, 1.0, 1.0 } };
+    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 1.0, 0.5, 1.0 } };
     const range = utils.imageSubresourceRange(.{ .color_bit = true });
     device.cmdClearColorImage(cmd, image, .general, &value, 1, @ptrCast(&range));
+}
+
+fn draw_geometry(
+    cmd: vk.CommandBuffer,
+    device: vk.DeviceProxy,
+    view: vk.ImageView,
+    extent: vk.Extent2D,
+    pipeline: vk.Pipeline,
+) void {
+    const color_attachment = vk.RenderingAttachmentInfo{
+        .image_view = view,
+        .image_layout = .color_attachment_optimal,
+        .load_op = .load,
+        .store_op = .store,
+        .resolve_mode = .{},
+        .resolve_image_layout = .undefined,
+        .resolve_image_view = .null_handle,
+        .clear_value = vk.ClearValue{
+            .color = .{ .float_32 = .{ 0, 0, 0, 0 } },
+        },
+    };
+
+    const rend_info = vk.RenderingInfo{
+        .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
+        .layer_count = 1,
+        .color_attachment_count = 1,
+        .p_color_attachments = @ptrCast(&color_attachment),
+        .p_depth_attachment = null,
+        .p_stencil_attachment = null,
+        .view_mask = 0,
+    };
+
+    device.cmdBeginRendering(cmd, &rend_info);
+    device.cmdBindPipeline(cmd, .graphics, pipeline);
+
+    const viewport = vk.Viewport{
+        .x = 0,
+        .y = 0,
+        .width = @floatFromInt(extent.width),
+        .height = @floatFromInt(extent.height),
+        .min_depth = 0.0,
+        .max_depth = 1.0,
+    };
+
+    device.cmdSetViewport(cmd, 0, 1, @ptrCast(&viewport));
+
+    const scissor = vk.Rect2D{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = .{ .width = extent.width, .height = extent.height },
+    };
+
+    device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
+
+    device.cmdDraw(cmd, 3, 1, 0, 0);
+    device.cmdEndRendering(cmd);
+}
+
+fn create_shader_module(device: vk.DeviceProxy, code: []const u8) !vk.ShaderModule {
+    std.debug.assert(code.len % 4 == 0); // check for alignment
+
+    const create_info = vk.ShaderModuleCreateInfo{
+        .code_size = code.len,
+        .p_code = @alignCast(@ptrCast(code.ptr)),
+    };
+
+    return device.createShaderModule(&create_info, null);
 }
 
 // fn init_imgui(self: *Renderer) !void {
