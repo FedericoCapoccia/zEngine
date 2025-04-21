@@ -162,7 +162,7 @@ pub const Renderer = struct {
         try self.swapchain.create(self);
 
         { // Create draw image
-            const extent = c.VkExtent3D{
+            const extent = c.VkExtent3D{ // basically drawing in 4k and then blitting down to swapchain image size
                 .width = 3840,
                 .height = 2160,
                 .depth = 1,
