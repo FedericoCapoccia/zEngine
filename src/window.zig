@@ -55,6 +55,14 @@ pub const Window = struct {
         };
     }
 
+    pub fn getMaxPrimaryMonitorResolution() vk.Extent2D {
+        const mode = c.glfwGetVideoMode(c.glfwGetPrimaryMonitor());
+        return vk.Extent2D{
+            .width = @intCast(mode.*.width),
+            .height = @intCast(mode.*.height),
+        };
+    }
+
     pub fn show(self: *const Window) void {
         c.glfwShowWindow(self.handle);
     }

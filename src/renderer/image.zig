@@ -1,7 +1,9 @@
 const std = @import("std");
 
 const vk = @import("vulkan");
+
 const c = @import("../clibs.zig").c;
+const Window = @import("../window.zig").Window;
 
 pub const AllocatedImage = struct {
     image: vk.Image,
@@ -12,9 +14,10 @@ pub const AllocatedImage = struct {
 };
 
 pub fn create(vma: c.VmaAllocator, device: vk.DeviceProxy) !AllocatedImage {
+    const max_monitor_extent = Window.getMaxPrimaryMonitorResolution();
     const extent = c.VkExtent3D{ // basically drawing in 4k and then blitting down to swapchain image size
-        .width = 3840,
-        .height = 2160,
+        .width = max_monitor_extent.width,
+        .height = max_monitor_extent.height,
         .depth = 1,
     };
 
