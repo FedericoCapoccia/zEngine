@@ -67,6 +67,52 @@ pub fn transitionImage(
     // for multiple things at once.
 }
 
+pub fn copy_image(device: vk.DeviceProxy, cmd: vk.CommandBuffer, src: vk.Image, dst: vk.Image, src_size: vk.Extent2D, dst_size: vk.Extent2D) void {
+    var blit_reg: vk.ImageBlit2 = undefined;
+    blit_reg.p_next = null;
+    blit_reg.s_type = .image_blit_2;
+
+    blit_reg.src_offsets[0].x = 0;
+    blit_reg.src_offsets[0].y = 0;
+    blit_reg.src_offsets[0].z = 0;
+    blit_reg.src_offsets[1].x = @intCast(src_size.width);
+    blit_reg.src_offsets[1].y = @intCast(src_size.height);
+    blit_reg.src_offsets[1].z = 1;
+
+    blit_reg.dst_offsets[0].x = 0;
+    blit_reg.dst_offsets[0].y = 0;
+    blit_reg.dst_offsets[0].z = 0;
+    blit_reg.dst_offsets[1].x = @intCast(dst_size.width);
+    blit_reg.dst_offsets[1].y = @intCast(dst_size.height);
+    blit_reg.dst_offsets[1].z = 1;
+
+    blit_reg.src_subresource = .{
+        .aspect_mask = .{ .color_bit = true },
+        .mip_level = 0,
+        .base_array_layer = 0,
+        .layer_count = 1,
+    };
+
+    blit_reg.dst_subresource = .{
+        .aspect_mask = .{ .color_bit = true },
+        .mip_level = 0,
+        .base_array_layer = 0,
+        .layer_count = 1,
+    };
+
+    const blit_info = vk.BlitImageInfo2{
+        .dst_image = dst,
+        .dst_image_layout = .transfer_dst_optimal,
+        .src_image = src,
+        .src_image_layout = .transfer_src_optimal,
+        .filter = .linear,
+        .region_count = 1,
+        .p_regions = @ptrCast(&blit_reg),
+    };
+
+    device.cmdBlitImage2(cmd, &blit_info);
+}
+
 pub fn semaphoreSubmitInfo(mask: vk.PipelineStageFlags2, semaphore: vk.Semaphore) vk.SemaphoreSubmitInfo {
     return vk.SemaphoreSubmitInfo{
         .semaphore = semaphore,

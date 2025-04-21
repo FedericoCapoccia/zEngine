@@ -68,6 +68,14 @@ pub const FrameData = struct {
     }
 };
 
+const AllocatedImage = struct {
+    image: vk.Image,
+    view: vk.ImageView,
+    format: vk.Format,
+    extent: vk.Extent3D,
+    alloc: c.VmaAllocation,
+};
+
 pub const Renderer = struct {
     pub const device_extensions = [_][*:0]const u8{
         vk.extensions.khr_swapchain.name,
@@ -91,11 +99,15 @@ pub const Renderer = struct {
     // -- core.device
     device: vk.DeviceProxy = undefined,
     queues: core.device.QueueBundle = undefined,
+
+    vma: c.VmaAllocator = undefined,
+    draw_image: AllocatedImage = undefined,
+    draw_extent: vk.Extent2D = undefined,
     // imgui_pool: vk.DescriptorPool = .null_handle,
 
     // Rendering infrastructure
     swapchain: core.swapchain.Swapchain = undefined,
-    frames: [MAX_FRAMES_IN_FLIGHT]FrameData = undefined,
+    frames: [MAX_FRAMES_IN_FLIGHT]FrameData = .{FrameData{}} ** MAX_FRAMES_IN_FLIGHT,
     current_frame: u8 = 0,
 
     fn getCurrentFrame(self: *const Renderer) *FrameData {
@@ -129,6 +141,19 @@ pub const Renderer = struct {
         };
         errdefer core.device.destroy(self);
 
+        const vma_info = c.VmaAllocatorCreateInfo{
+            .vulkanApiVersion = c.VK_API_VERSION_1_4,
+            .instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
+            .physicalDevice = @ptrFromInt(@intFromEnum(self.pdev)),
+            .device = @ptrFromInt(@intFromEnum(self.device.handle)),
+        };
+
+        if (c.vmaCreateAllocator(&vma_info, &self.vma) != c.VK_SUCCESS) {
+            std.log.err("Failed to create VulkanMemoryAllocator", .{});
+            return error.VmaAllocatorCreationFailed;
+        }
+        errdefer c.vmaDestroyAllocator(self.vma);
+
         // NOTE: Swapchain and rendering infrastructure
         self.swapchain = core.swapchain.Swapchain{
             .allocator = self.allocator,
@@ -136,8 +161,83 @@ pub const Renderer = struct {
         };
         try self.swapchain.create(self);
 
+        { // Create draw image
+            const extent = c.VkExtent3D{
+                .width = 3840,
+                .height = 2160,
+                .depth = 1,
+            };
+
+            const format = c.VK_FORMAT_R16G16B16A16_SFLOAT;
+
+            var usage_flags: c.VkImageUsageFlags = 0;
+            usage_flags |= c.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            usage_flags |= c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            usage_flags |= c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            usage_flags |= c.VK_IMAGE_USAGE_STORAGE_BIT;
+
+            const image_info = c.VkImageCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                .imageType = c.VK_IMAGE_TYPE_2D,
+                .format = format,
+                .extent = extent,
+                .mipLevels = 1,
+                .arrayLayers = 1,
+                .samples = c.VK_SAMPLE_COUNT_1_BIT,
+                .tiling = c.VK_IMAGE_TILING_OPTIMAL,
+                .usage = usage_flags,
+                .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
+                .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
+            };
+
+            const alloc_info = c.VmaAllocationCreateInfo{
+                .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
+                .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            };
+
+            const result = c.vmaCreateImage(
+                self.vma,
+                &image_info,
+                &alloc_info,
+                @ptrCast(&self.draw_image.image),
+                &self.draw_image.alloc,
+                null,
+            );
+
+            if (result != c.VK_SUCCESS) {
+                return error.FailedToAllocateDrawImage;
+            }
+
+            const view_info = vk.ImageViewCreateInfo{
+                .view_type = .@"2d",
+                .image = self.draw_image.image,
+                .format = @enumFromInt(format),
+                .subresource_range = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                    .level_count = 1,
+                },
+                .components = .{
+                    .r = .identity,
+                    .g = .identity,
+                    .b = .identity,
+                    .a = .identity,
+                },
+            };
+
+            self.draw_image.view = try self.device.createImageView(&view_info, null);
+            self.draw_image.format = @enumFromInt(format);
+            self.draw_image.extent = vk.Extent3D{
+                .width = extent.width,
+                .height = extent.height,
+                .depth = extent.depth,
+            };
+        }
+
         for (self.frames, 0..) |_, idx| {
-            self.frames[idx] = FrameData{};
+            //self.frames[idx] = FrameData{};
             try self.frames[idx].init(self);
         }
         errdefer {
@@ -148,18 +248,6 @@ pub const Renderer = struct {
 
         // try init_imgui(self);
     }
-    // const vma_info = c.VmaAllocatorCreateInfo{
-    //         .vulkanApiVersion = c.VK_API_VERSION_1_4,
-    //         .instance = @ptrFromInt(@intFromEnum(context.instance.handle)),
-    //         .physicalDevice = @ptrFromInt(@intFromEnum(context.gpu)),
-    //         .device = @ptrFromInt(@intFromEnum(context.device.handle)),
-    //     };
-    //
-    //     if (c.vmaCreateAllocator(&vma_info, &context.vma) != c.VK_SUCCESS) {
-    //         std.log.err("Failed to create VulkanMemoryAllocator", .{});
-    //         return error.VmaAllocatorCreationFailed;
-    //     }
-    //     errdefer c.vmaDestroyAllocator(context.vma);
 
     pub fn shutdown(self: *Renderer) void {
         self.device.deviceWaitIdle() catch {};
@@ -168,7 +256,16 @@ pub const Renderer = struct {
             self.frames[idx].deinit();
         }
 
+        self.device.destroyImageView(self.draw_image.view, null);
+        c.vmaDestroyImage(
+            self.vma,
+            @ptrFromInt(@intFromEnum(self.draw_image.image)),
+            self.draw_image.alloc,
+        );
+
         self.swapchain.cleanup();
+
+        c.vmaDestroyAllocator(self.vma);
 
         // --- Device
         core.device.destroy(self);
@@ -220,13 +317,21 @@ pub const Renderer = struct {
             .flags = .{ .one_time_submit_bit = true },
         };
 
+        self.draw_extent.width = self.draw_image.extent.width;
+        self.draw_extent.height = self.draw_image.extent.height;
+
         try frame.device.beginCommandBuffer(frame.cmd, &begin_info);
 
-        utils.transitionImage(frame, image, .undefined, .general, self.qfamilies.graphics);
+        utils.transitionImage(frame, self.draw_image.image, .undefined, .general, self.qfamilies.graphics);
 
-        clear_background(frame.cmd, frame.device, image);
+        clear_background(frame.cmd, frame.device, self.draw_image.image);
 
-        utils.transitionImage(frame, image, .general, .present_src_khr, self.qfamilies.graphics);
+        utils.transitionImage(frame, self.draw_image.image, .general, .transfer_src_optimal, self.qfamilies.graphics);
+        utils.transitionImage(frame, image, .undefined, .transfer_dst_optimal, self.qfamilies.graphics);
+
+        utils.copy_image(self.device, frame.cmd, self.draw_image.image, image, self.draw_extent, self.swapchain.extent);
+
+        utils.transitionImage(frame, image, .transfer_dst_optimal, .present_src_khr, self.qfamilies.graphics);
 
         try frame.device.endCommandBuffer(frame.cmd);
 
