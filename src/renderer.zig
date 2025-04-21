@@ -505,7 +505,7 @@ fn draw_geometry(
     device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
 
     device.cmdDraw(cmd, 3, 1, 0, 0);
-    // device.cmdBindPipeline(cmd, .graphics, .null_handle);
+
     c.cImGui_ImplVulkan_RenderDrawData(c.ImGui_GetDrawData(), @ptrFromInt(@intFromEnum(cmd)));
 
     device.cmdEndRendering(cmd);
