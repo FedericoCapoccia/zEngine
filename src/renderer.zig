@@ -106,6 +106,7 @@ pub const Renderer = struct {
 
     draw_image: core.image.AllocatedImage,
     draw_extent: vk.Extent2D,
+    scale: f32 = 1.0,
 
     frames: [MAX_FRAMES_IN_FLIGHT]FrameData,
     current_frame: u8 = 0,
@@ -257,6 +258,11 @@ pub const Renderer = struct {
     }
 
     pub fn draw(self: *Renderer) !void {
+        const width_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.width, self.draw_image.extent.width));
+        const height_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.height, self.draw_image.extent.height));
+        self.draw_extent.width = @intFromFloat(width_to_be_scaled * self.scale);
+        self.draw_extent.height = @intFromFloat(height_to_be_scaled * self.scale);
+
         const frame = self.getCurrentFrame();
         var should_resize = false;
 
