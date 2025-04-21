@@ -15,50 +15,56 @@ const enable_validation: bool = switch (builtin.mode) {
 
 const MAX_FRAMES_IN_FLIGHT = 2;
 
+var resize_requested: bool = false;
+fn onResize(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
+    resize_requested = true;
+    _ = window;
+    _ = width;
+    _ = height;
+}
+
 pub const FrameData = struct {
-    device: vk.DeviceProxy = undefined,
     pool: vk.CommandPool = .null_handle,
     cmd: vk.CommandBuffer = .null_handle,
     image_acquired: vk.Semaphore = .null_handle,
     render_finished_sem: vk.Semaphore = .null_handle,
     render_finished_fen: vk.Fence = .null_handle,
 
-    pub fn init(self: *FrameData, renderer: *const Renderer) !void {
-        self.device = renderer.device;
+    pub fn init(self: *FrameData, device: vk.DeviceProxy, qfamilies: core.gpu.QueueFamilyBundle) !void {
         const pool_info = vk.CommandPoolCreateInfo{
-            .queue_family_index = renderer.qfamilies.graphics,
+            .queue_family_index = qfamilies.graphics,
             .flags = .{ .reset_command_buffer_bit = true, .transient_bit = true },
         };
-        self.pool = try self.device.createCommandPool(&pool_info, null);
-        errdefer self.device.destroyCommandPool(self.pool, null);
+        self.pool = try device.createCommandPool(&pool_info, null);
+        errdefer device.destroyCommandPool(self.pool, null);
 
         const buff_info = vk.CommandBufferAllocateInfo{
             .command_pool = self.pool,
             .command_buffer_count = 1,
             .level = .primary,
         };
-        try self.device.allocateCommandBuffers(&buff_info, @ptrCast(&self.cmd));
+        try device.allocateCommandBuffers(&buff_info, @ptrCast(&self.cmd));
 
-        self.image_acquired = try self.device.createSemaphore(&.{}, null);
-        errdefer self.device.destroySemaphore(self.image_acquired, null);
+        self.image_acquired = try device.createSemaphore(&.{}, null);
+        errdefer device.destroySemaphore(self.image_acquired, null);
 
-        self.render_finished_sem = try self.device.createSemaphore(&.{}, null);
-        errdefer self.device.destroySemaphore(self.render_finished_sem, null);
+        self.render_finished_sem = try device.createSemaphore(&.{}, null);
+        errdefer device.destroySemaphore(self.render_finished_sem, null);
 
         const fence_info = vk.FenceCreateInfo{
             .flags = .{ .signaled_bit = true },
         };
-        self.render_finished_fen = try self.device.createFence(&fence_info, null);
+        self.render_finished_fen = try device.createFence(&fence_info, null);
         errdefer self.device.destroyFence(self.render_finished_fen, null);
     }
 
-    pub fn deinit(self: *FrameData) void {
-        self.device.deviceWaitIdle() catch {};
+    pub fn deinit(self: *FrameData, device: vk.DeviceProxy) void {
+        device.deviceWaitIdle() catch {};
 
-        self.device.destroyCommandPool(self.pool, null);
-        self.device.destroySemaphore(self.image_acquired, null);
-        self.device.destroySemaphore(self.render_finished_sem, null);
-        self.device.destroyFence(self.render_finished_fen, null);
+        device.destroyCommandPool(self.pool, null);
+        device.destroySemaphore(self.image_acquired, null);
+        device.destroySemaphore(self.render_finished_sem, null);
+        device.destroyFence(self.render_finished_fen, null);
 
         self.pool = .null_handle;
         self.cmd = .null_handle;
@@ -66,14 +72,6 @@ pub const FrameData = struct {
         self.render_finished_sem = .null_handle;
         self.render_finished_fen = .null_handle;
     }
-};
-
-const AllocatedImage = struct {
-    image: vk.Image,
-    view: vk.ImageView,
-    format: vk.Format,
-    extent: vk.Extent3D,
-    alloc: c.VmaAllocation,
 };
 
 pub const Renderer = struct {
@@ -89,171 +87,144 @@ pub const Renderer = struct {
 
     // Core Vulkan components initialization
     // -- core.instance
-    instance: vk.InstanceProxy = undefined,
-    messenger: ?vk.DebugUtilsMessengerEXT = null,
+    instance: vk.InstanceProxy,
+    messenger: ?vk.DebugUtilsMessengerEXT,
     // -- this
-    surface: vk.SurfaceKHR = .null_handle,
+    surface: vk.SurfaceKHR,
     // -- core.gpu and this
-    pdev: vk.PhysicalDevice = .null_handle,
-    qfamilies: core.gpu.QueueFamilyBundle = undefined,
+    pdev: vk.PhysicalDevice,
+    qfamilies: core.gpu.QueueFamilyBundle,
     // -- core.device
-    device: vk.DeviceProxy = undefined,
-    queues: core.device.QueueBundle = undefined,
+    device: vk.DeviceProxy,
+    queues: core.device.QueueBundle,
 
-    vma: c.VmaAllocator = undefined,
-    draw_image: AllocatedImage = undefined,
-    draw_extent: vk.Extent2D = undefined,
+    vma: c.VmaAllocator,
     // imgui_pool: vk.DescriptorPool = .null_handle,
 
     // Rendering infrastructure
-    swapchain: core.swapchain.Swapchain = undefined,
-    frames: [MAX_FRAMES_IN_FLIGHT]FrameData = .{FrameData{}} ** MAX_FRAMES_IN_FLIGHT,
+    swapchain: core.swapchain.Swapchain,
+
+    draw_image: core.image.AllocatedImage,
+    draw_extent: vk.Extent2D,
+
+    frames: [MAX_FRAMES_IN_FLIGHT]FrameData,
     current_frame: u8 = 0,
 
     fn getCurrentFrame(self: *const Renderer) *FrameData {
         return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % MAX_FRAMES_IN_FLIGHT)]));
     }
 
-    pub fn init(self: *Renderer) !void {
+    pub fn new(allocator: std.mem.Allocator, window: *const Window) !Renderer {
         std.log.info("Initializing renderer", .{});
 
-        // NOTE: core Vulkan components initialization
-        core.instance.create(self, enable_validation) catch |err| {
+        _ = c.glfwSetFramebufferSizeCallback(window.handle, onResize);
+
+        // core Vulkan components initialization
+        const instance = core.instance.create(allocator, enable_validation) catch |err| {
             std.log.err("Failed to create Instance: {s}", .{@errorName(err)});
             return error.InstanceCreationFailed;
         };
-        errdefer core.instance.destroy(self);
+        var messenger: ?vk.DebugUtilsMessengerEXT = null;
+        if (enable_validation) {
+            messenger = core.instance.createMessenger(instance) catch |err| {
+                std.log.err("Failed to create DebugUtilsMessenger: {s}", .{@errorName(err)});
+                return error.DebugUtilsMessengerCreationFailed;
+            };
+        }
+        errdefer core.instance.destroy(instance, messenger, allocator);
 
-        self.surface = self.window.createVulkanSurface(self.instance) catch |err| {
+        const surface = window.createVulkanSurface(instance) catch |err| {
             std.log.err("Failed to create Surface: {s}", .{@errorName(err)});
             return error.SurfaceCreationFailed;
         };
-        errdefer self.instance.destroySurfaceKHR(self.surface, null);
+        errdefer instance.destroySurfaceKHR(surface, null);
 
-        core.gpu.select(self) catch |err| {
+        const selection_res = core.gpu.select(instance, surface, allocator) catch |err| {
             std.log.err("Failed to select PhysicalDevice: {s}", .{@errorName(err)});
             return error.PhysicalDeviceSelectionFailed;
         };
+        const pdevice = selection_res.device;
+        const qfamilies = selection_res.qfamilies;
 
-        core.device.create(self) catch |err| {
+        const device = core.device.create(instance, pdevice, qfamilies, allocator) catch |err| {
             std.log.err("Failed to create Device: {s}", .{@errorName(err)});
             return error.PhysicalDeviceSelectionFailed;
         };
-        errdefer core.device.destroy(self);
+        errdefer core.device.destroy(device, allocator);
+        const queues = core.device.getQueues(device, qfamilies);
 
         const vma_info = c.VmaAllocatorCreateInfo{
             .vulkanApiVersion = c.VK_API_VERSION_1_4,
-            .instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
-            .physicalDevice = @ptrFromInt(@intFromEnum(self.pdev)),
-            .device = @ptrFromInt(@intFromEnum(self.device.handle)),
+            .instance = @ptrFromInt(@intFromEnum(instance.handle)),
+            .physicalDevice = @ptrFromInt(@intFromEnum(pdevice)),
+            .device = @ptrFromInt(@intFromEnum(device.handle)),
         };
 
-        if (c.vmaCreateAllocator(&vma_info, &self.vma) != c.VK_SUCCESS) {
+        var vma: c.VmaAllocator = undefined;
+        if (c.vmaCreateAllocator(&vma_info, &vma) != c.VK_SUCCESS) {
             std.log.err("Failed to create VulkanMemoryAllocator", .{});
             return error.VmaAllocatorCreationFailed;
         }
-        errdefer c.vmaDestroyAllocator(self.vma);
+        errdefer c.vmaDestroyAllocator(vma);
 
         // NOTE: Swapchain and rendering infrastructure
-        self.swapchain = core.swapchain.Swapchain{
-            .allocator = self.allocator,
-            .device = &self.device,
+        const swapchain_info = core.swapchain.SwapchainInfo{
+            .instance = &instance,
+            .surface = surface,
+            .physical_device = pdevice,
+            .device = &device,
+            .window = window,
         };
-        try self.swapchain.create(self);
 
-        { // Create draw image
-            const extent = c.VkExtent3D{ // basically drawing in 4k and then blitting down to swapchain image size
-                .width = 3840,
-                .height = 2160,
-                .depth = 1,
-            };
+        var swapchain = core.swapchain.Swapchain{};
+        try swapchain.create(swapchain_info, allocator);
 
-            const format = c.VK_FORMAT_R16G16B16A16_SFLOAT;
-
-            var usage_flags: c.VkImageUsageFlags = 0;
-            usage_flags |= c.VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            usage_flags |= c.VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-            usage_flags |= c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-            usage_flags |= c.VK_IMAGE_USAGE_STORAGE_BIT;
-
-            const image_info = c.VkImageCreateInfo{
-                .sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                .imageType = c.VK_IMAGE_TYPE_2D,
-                .format = format,
-                .extent = extent,
-                .mipLevels = 1,
-                .arrayLayers = 1,
-                .samples = c.VK_SAMPLE_COUNT_1_BIT,
-                .tiling = c.VK_IMAGE_TILING_OPTIMAL,
-                .usage = usage_flags,
-                .sharingMode = c.VK_SHARING_MODE_EXCLUSIVE,
-                .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-            };
-
-            const alloc_info = c.VmaAllocationCreateInfo{
-                .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
-                .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            };
-
-            const result = c.vmaCreateImage(
-                self.vma,
-                &image_info,
-                &alloc_info,
-                @ptrCast(&self.draw_image.image),
-                &self.draw_image.alloc,
-                null,
-            );
-
-            if (result != c.VK_SUCCESS) {
-                return error.FailedToAllocateDrawImage;
-            }
-
-            const view_info = vk.ImageViewCreateInfo{
-                .view_type = .@"2d",
-                .image = self.draw_image.image,
-                .format = @enumFromInt(format),
-                .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
-                    .base_mip_level = 0,
-                    .base_array_layer = 0,
-                    .layer_count = 1,
-                    .level_count = 1,
-                },
-                .components = .{
-                    .r = .identity,
-                    .g = .identity,
-                    .b = .identity,
-                    .a = .identity,
-                },
-            };
-
-            self.draw_image.view = try self.device.createImageView(&view_info, null);
-            self.draw_image.format = @enumFromInt(format);
-            self.draw_image.extent = vk.Extent3D{
-                .width = extent.width,
-                .height = extent.height,
-                .depth = extent.depth,
-            };
+        const draw_image = try core.image.create(vma, device);
+        errdefer {
+            device.destroyImageView(draw_image.view, null);
+            c.vmaDestroyImage(vma, @ptrFromInt(@intFromEnum(draw_image.image)), draw_image.alloc);
         }
 
-        for (self.frames, 0..) |_, idx| {
+        var frames: [MAX_FRAMES_IN_FLIGHT]FrameData = .{FrameData{}} ** MAX_FRAMES_IN_FLIGHT;
+
+        for (frames, 0..) |_, idx| {
             //self.frames[idx] = FrameData{};
-            try self.frames[idx].init(self);
+            try frames[idx].init(device, qfamilies);
         }
         errdefer {
-            for (self.frames, 0..) |_, idx| {
-                self.frames[idx].deinit();
+            for (frames, 0..) |_, idx| {
+                frames[idx].deinit(device);
             }
         }
 
         // try init_imgui(self);
+
+        return Renderer{
+            .allocator = allocator,
+            .window = window,
+            .instance = instance,
+            .messenger = messenger,
+            .surface = surface,
+            .pdev = pdevice,
+            .qfamilies = qfamilies,
+            .device = device,
+            .queues = queues,
+            .vma = vma,
+            .swapchain = swapchain,
+            .frames = frames,
+            .draw_image = draw_image,
+            .draw_extent = vk.Extent2D{
+                .width = draw_image.extent.width,
+                .height = draw_image.extent.height,
+            },
+        };
     }
 
     pub fn shutdown(self: *Renderer) void {
         self.device.deviceWaitIdle() catch {};
 
         for (self.frames, 0..) |_, idx| {
-            self.frames[idx].deinit();
+            self.frames[idx].deinit(self.device);
         }
 
         self.device.destroyImageView(self.draw_image.view, null);
@@ -263,34 +234,35 @@ pub const Renderer = struct {
             self.draw_image.alloc,
         );
 
-        self.swapchain.cleanup();
+        self.swapchain.cleanup(self.device, self.allocator);
 
         c.vmaDestroyAllocator(self.vma);
-
-        // --- Device
-        core.device.destroy(self);
-        // --- PyDevice
-        self.qfamilies = undefined;
-        self.pdev = .null_handle;
-        // --- Surface
+        core.device.destroy(self.device, self.allocator);
         self.instance.destroySurfaceKHR(self.surface, null);
-        self.surface = .null_handle;
-        // --- Instance
-        core.instance.destroy(self);
+        core.instance.destroy(self.instance, self.messenger, self.allocator);
     }
 
     pub fn resize(self: *Renderer) !void {
         self.device.deviceWaitIdle() catch {};
-        try self.swapchain.create(self);
+
+        const swapchain_info = core.swapchain.SwapchainInfo{
+            .instance = &self.instance,
+            .surface = self.surface,
+            .physical_device = self.pdev,
+            .device = &self.device,
+            .window = self.window,
+        };
+
+        try self.swapchain.create(swapchain_info, self.allocator);
     }
 
     pub fn draw(self: *Renderer) !void {
         const frame = self.getCurrentFrame();
         var should_resize = false;
 
-        _ = try frame.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
+        _ = try self.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
 
-        const acquire_result = self.swapchain.acquireNextImage(frame.image_acquired, .null_handle) catch |err| {
+        const acquire_result = self.swapchain.acquireNextImage(self.device, frame.image_acquired, .null_handle) catch |err| {
             std.log.err("Failed to acquire next image from swapchain: {s}", .{@errorName(err)});
             return error.AcquireNextSwapchainImageFailed;
         };
@@ -308,32 +280,29 @@ pub const Renderer = struct {
 
         // IMPORTANT to be here see:
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/04_Swap_chain_recreation.html#_fixing_a_deadlock
-        try frame.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
+        try self.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
         const image = self.swapchain.images[acquire_result.index];
-        try frame.device.resetCommandBuffer(frame.cmd, .{});
+        try self.device.resetCommandBuffer(frame.cmd, .{});
 
         const begin_info = vk.CommandBufferBeginInfo{
             .flags = .{ .one_time_submit_bit = true },
         };
 
-        self.draw_extent.width = self.draw_image.extent.width;
-        self.draw_extent.height = self.draw_image.extent.height;
+        try self.device.beginCommandBuffer(frame.cmd, &begin_info);
 
-        try frame.device.beginCommandBuffer(frame.cmd, &begin_info);
+        utils.transitionImage(self.device, frame, self.draw_image.image, .undefined, .general, self.qfamilies.graphics);
 
-        utils.transitionImage(frame, self.draw_image.image, .undefined, .general, self.qfamilies.graphics);
+        clear_background(frame.cmd, self.device, self.draw_image.image);
 
-        clear_background(frame.cmd, frame.device, self.draw_image.image);
-
-        utils.transitionImage(frame, self.draw_image.image, .general, .transfer_src_optimal, self.qfamilies.graphics);
-        utils.transitionImage(frame, image, .undefined, .transfer_dst_optimal, self.qfamilies.graphics);
+        utils.transitionImage(self.device, frame, self.draw_image.image, .general, .transfer_src_optimal, self.qfamilies.graphics);
+        utils.transitionImage(self.device, frame, image, .undefined, .transfer_dst_optimal, self.qfamilies.graphics);
 
         utils.copy_image(self.device, frame.cmd, self.draw_image.image, image, self.draw_extent, self.swapchain.extent);
 
-        utils.transitionImage(frame, image, .transfer_dst_optimal, .present_src_khr, self.qfamilies.graphics);
+        utils.transitionImage(self.device, frame, image, .transfer_dst_optimal, .present_src_khr, self.qfamilies.graphics);
 
-        try frame.device.endCommandBuffer(frame.cmd);
+        try self.device.endCommandBuffer(frame.cmd);
 
         const cmd_submit_info = vk.CommandBufferSubmitInfo{
             .command_buffer = frame.cmd,
@@ -344,7 +313,7 @@ pub const Renderer = struct {
         const sig_info = utils.semaphoreSubmitInfo(.{ .all_graphics_bit = true }, frame.render_finished_sem);
         const submit_info = utils.submitInfo(&cmd_submit_info, &sig_info, &wait_info);
 
-        try frame.device.queueSubmit2(self.queues.graphics, 1, @ptrCast(&submit_info), frame.render_finished_fen);
+        try self.device.queueSubmit2(self.queues.graphics, 1, @ptrCast(&submit_info), frame.render_finished_fen);
 
         const present_info = vk.PresentInfoKHR{
             .p_swapchains = @ptrCast(&self.swapchain.handle),
@@ -354,7 +323,7 @@ pub const Renderer = struct {
             .p_image_indices = @ptrCast(&acquire_result.index),
         };
 
-        const res = frame.device.queuePresentKHR(self.queues.graphics, &present_info) catch |err| {
+        const res = self.device.queuePresentKHR(self.queues.graphics, &present_info) catch |err| {
             if (err != error.OutOfDateKHR) {
                 std.log.err("Failed to present on the queue: {s}", .{@errorName(err)});
                 return error.QueuePresentFailed;
@@ -365,8 +334,9 @@ pub const Renderer = struct {
             return;
         };
 
-        if (res == vk.Result.suboptimal_khr or should_resize) {
+        if (res == vk.Result.suboptimal_khr or should_resize or resize_requested) {
             try self.resize();
+            resize_requested = false;
         }
 
         self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;

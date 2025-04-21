@@ -10,18 +10,17 @@ pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwind
 
 pub const Window = struct {
     handle: *c.GLFWwindow,
-    title: [*:0]const u8,
 
-    pub fn init(window: *Window, width: i32, height: i32, title: [*:0]const u8) !void {
+    pub fn init(width: i32, height: i32, title: [*:0]const u8) !Window {
         std.log.info("Initializing window", .{});
 
         _ = c.glfwInit();
 
         c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
-        window.handle = c.glfwCreateWindow(width, height, title, null, null).?;
-        window.title = title;
+        c.glfwWindowHint(c.GLFW_VISIBLE, c.GLFW_FALSE);
+        const handle = c.glfwCreateWindow(width, height, title, null, null).?;
 
-        _ = c.glfwSetWindowSizeLimits(window.handle, 200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
+        _ = c.glfwSetWindowSizeLimits(handle, 200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
 
         if (builtin.target.os.tag == .windows) {
             const native = @cImport({
@@ -31,10 +30,12 @@ pub const Window = struct {
                 @cInclude("dwmapi.h");
             });
 
-            const hwnd = native.glfwGetWin32Window(@ptrCast(window.handle));
+            const hwnd = native.glfwGetWin32Window(@ptrCast(handle));
             const dark: native.BOOL = native.TRUE;
             _ = native.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
         }
+
+        return Window{ .handle = handle };
     }
 
     pub fn shutdown(self: *const Window) void {
@@ -54,14 +55,33 @@ pub const Window = struct {
         };
     }
 
+    pub fn show(self: *const Window) void {
+        c.glfwShowWindow(self.handle);
+    }
+
+    pub fn hide(self: *const Window) void {
+        c.glfwHideWindow(self.handle);
+    }
+
+    pub fn pollEvents() void {
+        c.glfwPollEvents();
+    }
+
+    pub fn shouldClose(self: *const Window) bool {
+        return c.glfwWindowShouldClose(self.handle) != 0;
+    }
+
+    pub fn setTitle(self: *const Window, title: [*:0]const u8) void {
+        c.glfwSetWindowTitle(self.handle, title);
+    }
+
     pub fn createVulkanSurface(self: *const Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
         var surface: vk.SurfaceKHR = undefined;
         _ = glfwCreateWindowSurface(instance.handle, self.handle, null, &surface);
         return surface;
     }
 
-    pub fn getRequiredVulkanExtensions(self: *const Window, allocator: std.mem.Allocator) !std.ArrayList([*:0]const u8) {
-        _ = self;
+    pub fn getRequiredVulkanExtensions(allocator: std.mem.Allocator) !std.ArrayList([*:0]const u8) {
         var count: u32 = undefined;
         const balls = c.glfwGetRequiredInstanceExtensions(&count);
 

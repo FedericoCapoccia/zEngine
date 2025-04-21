@@ -11,21 +11,20 @@ pub const Engine = struct {
     pub fn init(engine: *Engine) !void {
         std.log.info("Initializing engine", .{});
 
-        Window.init(&engine.window, 800, 600, "zEngine") catch |err| {
+        engine.window = Window.init(800, 600, "zEngine") catch |err| {
             std.log.err("Failed to initialize window: {s}", .{@errorName(err)});
             return error.WindowCreationFailed;
         };
         errdefer engine.window.shutdown();
+        engine.window.setTitle("Hello");
 
-        engine.renderer = Renderer{
-            .allocator = engine.allocator,
-            .window = &engine.window,
-        };
-        Renderer.init(&engine.renderer) catch |err| {
+        engine.renderer = Renderer.new(engine.allocator, &engine.window) catch |err| {
             std.log.err("Failed to initialize renderer: {s}", .{@errorName(err)});
             return error.RendererCreationFailed;
         };
         errdefer engine.renderer.shutdown();
+
+        engine.window.show();
     }
 
     pub fn shutdown(self: *Engine) void {

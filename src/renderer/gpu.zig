@@ -5,11 +5,15 @@ const vk = @import("vulkan");
 
 const Renderer = @import("../renderer.zig").Renderer;
 
-pub fn select(renderer: *Renderer) !void {
-    std.log.debug("Selecting physical device", .{});
-    const allocator = renderer.allocator;
+pub const SelectionResult = struct {
+    device: vk.PhysicalDevice,
+    qfamilies: QueueFamilyBundle,
+};
 
-    const devices = try renderer.instance.enumeratePhysicalDevicesAlloc(allocator);
+pub fn select(instance: vk.InstanceProxy, surface: vk.SurfaceKHR, allocator: std.mem.Allocator) !SelectionResult {
+    std.log.debug("Selecting physical device", .{});
+
+    const devices = try instance.enumeratePhysicalDevicesAlloc(allocator);
     defer allocator.free(devices);
 
     var candidate: ?vk.PhysicalDevice = null;
@@ -17,14 +21,14 @@ pub fn select(renderer: *Renderer) !void {
     var cand_queues: ?QueueFamilyBundle = null;
 
     for (devices) |pdev| {
-        const props = renderer.instance.getPhysicalDeviceProperties(pdev);
+        const props = instance.getPhysicalDeviceProperties(pdev);
         const score = rate(props);
         std.log.info("Found PhysicalDevice [{s}] score: {d}", .{ props.device_name, score });
 
-        const has_ext_support = try supportsExtensions(pdev, renderer.instance, allocator);
+        const has_ext_support = try supportsExtensions(pdev, instance, allocator);
         if (!has_ext_support) continue;
 
-        const queues = try scanQueueFamilies(pdev, renderer.instance, allocator, renderer.surface);
+        const queues = try scanQueueFamilies(pdev, instance, allocator, surface);
 
         std.log.debug("---------------------------", .{});
 
@@ -36,12 +40,12 @@ pub fn select(renderer: *Renderer) !void {
     }
 
     if (candidate) |cand| {
-        renderer.pdev = cand;
-        renderer.qfamilies = cand_queues.?;
-
-        const props = renderer.instance.getPhysicalDeviceProperties(cand);
+        const props = instance.getPhysicalDeviceProperties(cand);
         std.log.info("Selected {s}", .{props.device_name});
-        return;
+        return .{
+            .device = cand,
+            .qfamilies = cand_queues.?,
+        };
     }
 
     return error.NoSuitableGpu;

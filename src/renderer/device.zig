@@ -3,6 +3,7 @@ const std = @import("std");
 const vk = @import("vulkan");
 
 const Renderer = @import("../renderer.zig").Renderer;
+const QueueFamiliyBundle = @import("gpu.zig").QueueFamilyBundle;
 
 pub const QueueBundle = struct {
     graphics: vk.Queue,
@@ -10,13 +11,17 @@ pub const QueueBundle = struct {
     transfer: vk.Queue,
 };
 
-pub fn create(renderer: *Renderer) !void {
+pub fn create(
+    instance: vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    qfamilies: QueueFamiliyBundle,
+    allocator: std.mem.Allocator,
+) !vk.DeviceProxy {
     std.log.debug("Creating logical device", .{});
-    const allocator = renderer.allocator;
     const priorities = [_]f32{1.0};
-    const graphics = renderer.qfamilies.graphics;
-    const compute = renderer.qfamilies.compute;
-    const transfer = renderer.qfamilies.transfer;
+    const graphics = qfamilies.graphics;
+    const compute = qfamilies.compute;
+    const transfer = qfamilies.transfer;
 
     var queue_infos = std.ArrayList(vk.DeviceQueueCreateInfo).init(allocator);
     defer queue_infos.deinit();
@@ -66,25 +71,25 @@ pub fn create(renderer: *Renderer) !void {
         .p_next = &sync2_feature,
     };
 
-    const handle = try renderer.instance.createDevice(renderer.pdev, &info, null);
+    const handle = try instance.createDevice(pdev, &info, null);
 
     const wrapper = try allocator.create(vk.DeviceWrapper);
     errdefer allocator.destroy(wrapper);
-    wrapper.* = vk.DeviceWrapper.load(handle, renderer.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
+    wrapper.* = vk.DeviceWrapper.load(handle, instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
 
-    renderer.device = vk.DeviceProxy.init(handle, wrapper);
+    return vk.DeviceProxy.init(handle, wrapper);
+}
 
-    renderer.queues = QueueBundle{
-        .graphics = renderer.device.getDeviceQueue(renderer.qfamilies.graphics, 0),
-        .compute = renderer.device.getDeviceQueue(renderer.qfamilies.compute, 0),
-        .transfer = renderer.device.getDeviceQueue(renderer.qfamilies.transfer, 0),
+pub fn getQueues(device: vk.DeviceProxy, qfamilies: QueueFamiliyBundle) QueueBundle {
+    return QueueBundle{
+        .graphics = device.getDeviceQueue(qfamilies.graphics, 0),
+        .compute = device.getDeviceQueue(qfamilies.compute, 0),
+        .transfer = device.getDeviceQueue(qfamilies.transfer, 0),
     };
 }
 
-pub fn destroy(renderer: *Renderer) void {
+pub fn destroy(device: vk.DeviceProxy, allocator: std.mem.Allocator) void {
     std.log.debug("Destroying logical device", .{});
-    renderer.device.destroyDevice(null);
-    renderer.allocator.destroy(renderer.device.wrapper);
-    renderer.device = undefined;
-    renderer.queues = undefined;
+    device.destroyDevice(null);
+    allocator.destroy(device.wrapper);
 }

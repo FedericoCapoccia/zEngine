@@ -4,23 +4,30 @@ const vk = @import("vulkan");
 const c = @import("../clibs.zig").c;
 
 const Renderer = @import("../renderer.zig").Renderer;
+const Window = @import("../window.zig").Window;
+
+pub const SwapchainInfo = struct {
+    instance: *const vk.InstanceProxy,
+    surface: vk.SurfaceKHR,
+    physical_device: vk.PhysicalDevice,
+    device: *const vk.DeviceProxy,
+    window: *const Window,
+};
 
 const Details = struct {
     format: vk.SurfaceFormatKHR,
     present_mode: vk.PresentModeKHR,
     capabilities: vk.SurfaceCapabilitiesKHR,
 
-    pub fn query(renderer: *const Renderer) !Details {
-        const allocator = renderer.allocator;
-
-        const formats = try renderer.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
-            renderer.pdev,
-            renderer.surface,
+    pub fn query(info: SwapchainInfo, allocator: std.mem.Allocator) !Details {
+        const formats = try info.instance.getPhysicalDeviceSurfaceFormatsAllocKHR(
+            info.physical_device,
+            info.surface,
             allocator,
         );
-        const present_modes = try renderer.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
-            renderer.pdev,
-            renderer.surface,
+        const present_modes = try info.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(
+            info.physical_device,
+            info.surface,
             allocator,
         );
         defer allocator.free(formats);
@@ -44,7 +51,7 @@ const Details = struct {
             break :blk vk.PresentModeKHR.fifo_khr;
         };
 
-        const capabilities = try renderer.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(renderer.pdev, renderer.surface);
+        const capabilities = try info.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(info.physical_device, info.surface);
 
         return Details{
             .format = format,
@@ -55,17 +62,14 @@ const Details = struct {
 };
 
 pub const Swapchain = struct {
-    allocator: std.mem.Allocator,
-    device: *const vk.DeviceProxy,
-
     handle: vk.SwapchainKHR = .null_handle,
     extent: vk.Extent2D = undefined,
     format: vk.SurfaceFormatKHR = undefined,
     images: []vk.Image = undefined,
     image_views: []vk.ImageView = undefined,
 
-    pub fn create(self: *Swapchain, renderer: *Renderer) !void {
-        self.device.deviceWaitIdle() catch {};
+    pub fn create(self: *Swapchain, info: SwapchainInfo, allocator: std.mem.Allocator) !void {
+        info.device.deviceWaitIdle() catch {};
         // If the handle is not null it means that we are trying to recreate the swapchain on a resize event or similar
         // In that case we save the old handle, we cleanup the image views, we free the images and image_views containers
         // after that, we reset the internal state of the swapchain and we create a new one,
@@ -73,10 +77,10 @@ pub const Swapchain = struct {
         const old_swapchain: ?vk.SwapchainKHR = if (self.handle != .null_handle) self.handle else null;
         if (old_swapchain) |_| {
             for (self.image_views) |view| {
-                self.device.destroyImageView(view, null);
+                info.device.destroyImageView(view, null);
             }
-            self.allocator.free(self.image_views);
-            self.allocator.free(self.images);
+            allocator.free(self.image_views);
+            allocator.free(self.images);
             self.image_views = undefined;
             self.images = undefined;
             self.format = undefined;
@@ -85,16 +89,16 @@ pub const Swapchain = struct {
         }
         defer {
             if (old_swapchain) |old| { // cleanup old swapchain if present
-                self.device.destroySwapchainKHR(old, null);
+                info.device.destroySwapchainKHR(old, null);
             }
         }
 
-        const details = try Details.query(renderer);
+        const details = try Details.query(info, allocator);
         const capabilities = details.capabilities;
-        var current_extent = renderer.window.getFramebufferSize();
+        var current_extent = info.window.getFramebufferSize();
 
         while (current_extent.width == 0 or current_extent.height == 0) {
-            current_extent = renderer.window.getFramebufferSize();
+            current_extent = info.window.getFramebufferSize();
             c.glfwWaitEvents();
         }
 
@@ -109,8 +113,8 @@ pub const Swapchain = struct {
             break :blk desired_count;
         };
 
-        const info = vk.SwapchainCreateInfoKHR{
-            .surface = renderer.surface,
+        const create_info = vk.SwapchainCreateInfoKHR{
+            .surface = info.surface,
             .min_image_count = image_count,
             .image_format = self.format.format,
             .image_color_space = self.format.color_space,
@@ -125,17 +129,17 @@ pub const Swapchain = struct {
             .old_swapchain = old_swapchain orelse .null_handle,
         };
 
-        self.handle = try self.device.createSwapchainKHR(&info, null);
-        errdefer self.device.destroySwapchainKHR(self.handle, null);
+        self.handle = try info.device.createSwapchainKHR(&create_info, null);
+        errdefer info.device.destroySwapchainKHR(self.handle, null);
 
-        self.images = try self.device.getSwapchainImagesAllocKHR(self.handle, self.allocator);
-        errdefer self.allocator.free(self.images);
+        self.images = try info.device.getSwapchainImagesAllocKHR(self.handle, allocator);
+        errdefer allocator.free(self.images);
 
-        self.image_views = try self.allocator.alloc(vk.ImageView, self.images.len);
-        errdefer self.allocator.free(self.image_views);
+        self.image_views = try allocator.alloc(vk.ImageView, self.images.len);
+        errdefer allocator.free(self.image_views);
 
         for (self.images, self.image_views) |image, *view| {
-            try createImageView(view, image, self.format.format, self.device);
+            try createImageView(view, image, self.format.format, info.device);
         }
     }
 
@@ -151,13 +155,13 @@ pub const Swapchain = struct {
         return extent;
     }
 
-    pub fn cleanup(self: *Swapchain) void {
+    pub fn cleanup(self: *Swapchain, device: vk.DeviceProxy, allocator: std.mem.Allocator) void {
         for (self.image_views) |view| {
-            self.device.destroyImageView(view, null);
+            device.destroyImageView(view, null);
         }
-        self.allocator.free(self.image_views);
-        self.device.destroySwapchainKHR(self.handle, null);
-        self.allocator.free(self.images);
+        allocator.free(self.image_views);
+        device.destroySwapchainKHR(self.handle, null);
+        allocator.free(self.images);
 
         self.handle = .null_handle;
         self.extent = undefined;
@@ -166,8 +170,13 @@ pub const Swapchain = struct {
         self.image_views = undefined;
     }
 
-    pub fn acquireNextImage(self: *Swapchain, semaphore: vk.Semaphore, fence: vk.Fence) !AcquireNextImageResult {
-        const result = self.device.acquireNextImageKHR(self.handle, std.math.maxInt(u64), semaphore, fence) catch |err| {
+    pub fn acquireNextImage(
+        self: *Swapchain,
+        device: vk.DeviceProxy,
+        semaphore: vk.Semaphore,
+        fence: vk.Fence,
+    ) !AcquireNextImageResult {
+        const result = device.acquireNextImageKHR(self.handle, std.math.maxInt(u64), semaphore, fence) catch |err| {
             return switch (err) {
                 error.OutOfDateKHR => .{
                     .result = vk.Result.error_out_of_date_khr,

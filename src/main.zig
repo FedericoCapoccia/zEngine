@@ -10,14 +10,6 @@ pub const std_options: std.Options = .{
     .logFn = log_fn.myLogFn,
 };
 
-var resize_requested: bool = false;
-fn onResize(window: ?*c.GLFWwindow, width: c_int, height: c_int) callconv(.c) void {
-    resize_requested = true;
-    _ = window;
-    _ = width;
-    _ = height;
-}
-
 // const show_demo_window: bool = true;
 
 pub fn main() !void {
@@ -29,19 +21,8 @@ pub fn main() !void {
     try Engine.init(&engine);
     defer engine.shutdown();
 
-    _ = c.glfwSetFramebufferSizeCallback(engine.window.handle, onResize);
-
-    while (c.glfwWindowShouldClose(engine.window.handle) == 0) {
-        if (resize_requested) {
-            engine.renderer.resize() catch |err| {
-                std.log.err("Failed to resize: {s}", .{@errorName(err)});
-                return err;
-            };
-            resize_requested = false;
-        }
-
-        c.glfwPollEvents();
-
+    while (!engine.window.shouldClose()) {
+        @import("window.zig").Window.pollEvents();
         // c.cImGui_ImplVulkan_NewFrame();
         // c.cImGui_ImplGlfw_NewFrame();
         // c.ImGui_NewFrame();

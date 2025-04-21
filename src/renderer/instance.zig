@@ -1,17 +1,15 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 
 const vk = @import("vulkan");
 
-const Renderer = @import("../renderer.zig").Renderer;
+const Window = @import("../window.zig").Window;
 
 pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
 
-pub fn create(renderer: *Renderer, validation: bool) !void {
+pub fn create(allocator: std.mem.Allocator, validation: bool) !vk.InstanceProxy {
     std.log.debug("Creating Vulkan instance", .{});
 
     const bw = vk.BaseWrapper.load(glfwGetInstanceProcAddress);
-    const allocator = renderer.allocator;
 
     const app_info = vk.ApplicationInfo{
         .p_engine_name = "zEngine",
@@ -27,7 +25,7 @@ pub fn create(renderer: *Renderer, validation: bool) !void {
     defer allocator.free(available_layers);
     logAvailableLayersAndExtensions(available_extensions, available_layers);
 
-    var extensions = try renderer.window.getRequiredVulkanExtensions(allocator);
+    var extensions = try Window.getRequiredVulkanExtensions(allocator);
     var layers = std.ArrayList([*:0]const u8).init(allocator);
     if (validation) {
         try extensions.append(vk.extensions.ext_debug_utils.name);
@@ -57,23 +55,17 @@ pub fn create(renderer: *Renderer, validation: bool) !void {
     const wrapper = try allocator.create(vk.InstanceWrapper);
     errdefer allocator.destroy(wrapper);
     wrapper.* = vk.InstanceWrapper.load(handle, bw.dispatch.vkGetInstanceProcAddr.?);
-    renderer.instance = vk.InstanceProxy.init(handle, wrapper);
-
-    if (validation) {
-        renderer.messenger = try createMessenger(renderer.instance);
-    }
+    return vk.InstanceProxy.init(handle, wrapper);
 }
 
-pub fn destroy(renderer: *Renderer) void {
-    if (renderer.messenger) |mess| {
+pub fn destroy(instance: vk.InstanceProxy, messenger: ?vk.DebugUtilsMessengerEXT, allocator: std.mem.Allocator) void {
+    if (messenger) |mess| {
         std.log.debug("Destroying DebugUtilsMessenger", .{});
-        renderer.instance.destroyDebugUtilsMessengerEXT(mess, null);
-        renderer.messenger = null;
+        instance.destroyDebugUtilsMessengerEXT(mess, null);
     }
     std.log.debug("Destroying Vulkan instance", .{});
-    renderer.instance.destroyInstance(null);
-    renderer.allocator.destroy(renderer.instance.wrapper);
-    renderer.instance = undefined;
+    instance.destroyInstance(null);
+    allocator.destroy(instance.wrapper);
 }
 
 fn supportsLayers(avail: []vk.LayerProperties, required: []const [*:0]const u8) bool {
@@ -135,7 +127,7 @@ fn logAvailableLayersAndExtensions(ext: []vk.ExtensionProperties, lay: []vk.Laye
 //=====================================================================================================================
 // DEBUG UTILS MESSENGER EXT stuff
 //=====================================================================================================================
-fn createMessenger(instance: vk.InstanceProxy) !vk.DebugUtilsMessengerEXT {
+pub fn createMessenger(instance: vk.InstanceProxy) !vk.DebugUtilsMessengerEXT {
     const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
         .error_bit_ext = true,
         .warning_bit_ext = true,
