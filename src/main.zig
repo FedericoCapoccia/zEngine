@@ -10,8 +10,6 @@ pub const std_options: std.Options = .{
     .logFn = log_fn.myLogFn,
 };
 
-// const show_demo_window: bool = true;
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -23,12 +21,19 @@ pub fn main() !void {
 
     while (!engine.window.shouldClose()) {
         @import("window.zig").Window.pollEvents();
-        // c.cImGui_ImplVulkan_NewFrame();
-        // c.cImGui_ImplGlfw_NewFrame();
-        // c.ImGui_NewFrame();
 
-        // c.ImGui_ShowDemoWindow(@ptrCast(@constCast(&show_demo_window)));
-        // c.ImGui_Render();
+        // var show_demo_window: bool = true;
+
+        {
+            var open = true;
+            // Imgui frame
+            c.cImGui_ImplVulkan_NewFrame();
+            c.cImGui_ImplGlfw_NewFrame();
+            c.ImGui_NewFrame();
+            c.ImGui_ShowDemoWindow(&open);
+
+            c.ImGui_Render();
+        }
 
         engine.renderer.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});

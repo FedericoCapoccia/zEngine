@@ -99,7 +99,6 @@ pub const Renderer = struct {
     queues: core.device.QueueBundle,
 
     vma: c.VmaAllocator,
-    // imgui_pool: vk.DescriptorPool = .null_handle,
 
     // Rendering infrastructure
     swapchain: core.swapchain.Swapchain,
@@ -113,6 +112,8 @@ pub const Renderer = struct {
 
     frames: [MAX_FRAMES_IN_FLIGHT]FrameData,
     current_frame: u8 = 0,
+
+    imgui_pool: vk.DescriptorPool,
 
     fn getCurrentFrame(self: *const Renderer) *FrameData {
         return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % MAX_FRAMES_IN_FLIGHT)]));
@@ -234,7 +235,54 @@ pub const Renderer = struct {
             }
         }
 
-        // try init_imgui(self);
+        const pool_sizes = [_]vk.DescriptorPoolSize{
+            vk.DescriptorPoolSize{ .type = .sampler, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .combined_image_sampler, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .sampled_image, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .storage_image, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .uniform_texel_buffer, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .storage_texel_buffer, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .uniform_buffer, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .storage_buffer, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .uniform_buffer_dynamic, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .storage_buffer_dynamic, .descriptor_count = 1000 },
+            vk.DescriptorPoolSize{ .type = .input_attachment, .descriptor_count = 1000 },
+        };
+
+        const pool_create_info = vk.DescriptorPoolCreateInfo{
+            .flags = .{ .free_descriptor_set_bit = true },
+            .max_sets = 1000,
+            .pool_size_count = @intCast(pool_sizes.len),
+            .p_pool_sizes = @ptrCast(&pool_sizes[0]),
+        };
+
+        const imgui_pool = try device.createDescriptorPool(&pool_create_info, null);
+        _ = c.ImGui_CreateContext(null);
+        _ = c.cImGui_ImplGlfw_InitForVulkan(window.handle, true);
+
+        const imgui_pipeline_info = c.VkPipelineRenderingCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .pNext = null,
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = @ptrCast(&draw_image.format),
+        };
+
+        const imgui_init_info = c.ImGui_ImplVulkan_InitInfo{
+            .Instance = @ptrFromInt(@intFromEnum(instance.handle)),
+            .PhysicalDevice = @ptrFromInt(@intFromEnum(pdevice)),
+            .Device = @ptrFromInt(@intFromEnum(device.handle)),
+            .QueueFamily = qfamilies.graphics,
+            .Queue = @ptrFromInt(@intFromEnum(queues.graphics)),
+            .DescriptorPool = @ptrFromInt(@intFromEnum(imgui_pool)),
+            .MinImageCount = MAX_FRAMES_IN_FLIGHT,
+            .ImageCount = MAX_FRAMES_IN_FLIGHT,
+            .MSAASamples = c.VK_SAMPLE_COUNT_1_BIT,
+            .UseDynamicRendering = true,
+            .PipelineRenderingCreateInfo = imgui_pipeline_info,
+        };
+
+        _ = c.cImGui_ImplVulkan_Init(@ptrCast(@constCast(&imgui_init_info)));
+        _ = c.cImGui_ImplVulkan_CreateFontsTexture();
 
         return Renderer{
             .allocator = allocator,
@@ -256,11 +304,15 @@ pub const Renderer = struct {
             },
             .triangle_pipeline = pipeline,
             .triangle_layout = pip_layout,
+            .imgui_pool = imgui_pool,
         };
     }
 
     pub fn shutdown(self: *Renderer) void {
         self.device.deviceWaitIdle() catch {};
+
+        c.cImGui_ImplVulkan_Shutdown();
+        self.device.destroyDescriptorPool(self.imgui_pool, null);
 
         for (self.frames, 0..) |_, idx| {
             self.frames[idx].deinit(self.device);
@@ -395,7 +447,7 @@ pub const Renderer = struct {
 };
 
 fn clear_background(cmd: vk.CommandBuffer, device: vk.DeviceProxy, image: vk.Image) void {
-    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 1.0, 0.5, 1.0 } };
+    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } };
     const range = utils.imageSubresourceRange(.{ .color_bit = true });
     device.cmdClearColorImage(cmd, image, .general, &value, 1, @ptrCast(&range));
 }
@@ -416,7 +468,7 @@ fn draw_geometry(
         .resolve_image_layout = .undefined,
         .resolve_image_view = .null_handle,
         .clear_value = vk.ClearValue{
-            .color = .{ .float_32 = .{ 0, 0, 0, 0 } },
+            .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
         },
     };
 
@@ -431,6 +483,7 @@ fn draw_geometry(
     };
 
     device.cmdBeginRendering(cmd, &rend_info);
+
     device.cmdBindPipeline(cmd, .graphics, pipeline);
 
     const viewport = vk.Viewport{
@@ -452,6 +505,9 @@ fn draw_geometry(
     device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
 
     device.cmdDraw(cmd, 3, 1, 0, 0);
+    // device.cmdBindPipeline(cmd, .graphics, .null_handle);
+    c.cImGui_ImplVulkan_RenderDrawData(c.ImGui_GetDrawData(), @ptrFromInt(@intFromEnum(cmd)));
+
     device.cmdEndRendering(cmd);
 }
 
@@ -465,55 +521,3 @@ fn create_shader_module(device: vk.DeviceProxy, code: []const u8) !vk.ShaderModu
 
     return device.createShaderModule(&create_info, null);
 }
-
-// fn init_imgui(self: *Renderer) !void {
-//     const pool_sizes = [_]vk.DescriptorPoolSize{
-//         vk.DescriptorPoolSize{ .type = .sampler, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .combined_image_sampler, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .sampled_image, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .storage_image, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .uniform_texel_buffer, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .storage_texel_buffer, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .uniform_buffer, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .storage_buffer, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .uniform_buffer_dynamic, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .storage_buffer_dynamic, .descriptor_count = 1000 },
-//         vk.DescriptorPoolSize{ .type = .input_attachment, .descriptor_count = 1000 },
-//     };
-//
-//     const pool_create_info = vk.DescriptorPoolCreateInfo{
-//         .flags = .{ .free_descriptor_set_bit = true },
-//         .max_sets = 1000,
-//         .pool_size_count = @intCast(pool_sizes.len),
-//         .p_pool_sizes = @ptrCast(&pool_sizes[0]),
-//     };
-//
-//     self.imgui_pool = try self.device.createDescriptorPool(&pool_create_info, null);
-//
-//     _ = c.ImGui_CreateContext(null);
-//     _ = c.cImGui_ImplGlfw_InitForVulkan(self.window.handle, false);
-//
-//     const pipeline_info = c.VkPipelineRenderingCreateInfo{
-//         .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-//         .pNext = null,
-//         .colorAttachmentCount = 1,
-//         .pColorAttachmentFormats = @ptrCast(&self.swapchain.format),
-//     };
-//
-//     const init_info = c.ImGui_ImplVulkan_InitInfo{
-//         .Instance = @ptrFromInt(@intFromEnum(self.instance.handle)),
-//         .PhysicalDevice = @ptrFromInt(@intFromEnum(self.pdev)),
-//         .Device = @ptrFromInt(@intFromEnum(self.device.handle)),
-//         .QueueFamily = self.qfamilies.graphics,
-//         .Queue = @ptrFromInt(@intFromEnum(self.queues.graphics)),
-//         .DescriptorPool = @ptrFromInt(@intFromEnum(self.imgui_pool)),
-//         .MinImageCount = MAX_FRAMES_IN_FLIGHT,
-//         .ImageCount = MAX_FRAMES_IN_FLIGHT,
-//         .MSAASamples = c.VK_SAMPLE_COUNT_1_BIT,
-//         .UseDynamicRendering = true,
-//         .PipelineRenderingCreateInfo = pipeline_info,
-//     };
-//
-//     _ = c.cImGui_ImplVulkan_Init(@ptrCast(@constCast(&init_info)));
-//     _ = c.cImGui_ImplVulkan_CreateFontsTexture();
-// }
