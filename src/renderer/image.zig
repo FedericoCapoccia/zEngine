@@ -20,6 +20,7 @@ pub fn create(vma: c.VmaAllocator, device: vk.DeviceProxy) !AllocatedImage {
         .height = max_monitor_extent.height,
         .depth = 1,
     };
+    std.log.info("Drawing on image of size: [{d}x{d}]", .{ extent.width, extent.height });
 
     const format = c.VK_FORMAT_R16G16B16A16_SFLOAT;
 
