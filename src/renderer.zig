@@ -115,7 +115,7 @@ pub const Renderer = struct {
 
     imgui_pool: vk.DescriptorPool,
 
-    fn getCurrentFrame(self: *const Renderer) *FrameData {
+    pub fn getCurrentFrame(self: *const Renderer) *FrameData {
         return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % MAX_FRAMES_IN_FLIGHT)]));
     }
 
@@ -178,7 +178,7 @@ pub const Renderer = struct {
             .surface = surface,
             .physical_device = pdevice,
             .device = &device,
-            .window = window,
+            .extent = window.getFramebufferSize(),
         };
 
         var swapchain = core.swapchain.Swapchain{};
@@ -339,25 +339,32 @@ pub const Renderer = struct {
     pub fn resize(self: *Renderer) !void {
         self.device.deviceWaitIdle() catch {};
 
+        var extent = self.window.getFramebufferSize();
+        while (extent.width == 0 or extent.height == 0) {
+            std.log.debug("Extent is 0, waiting for events...", .{});
+            c.glfwWaitEvents();
+            extent = self.window.getFramebufferSize();
+        }
+
         const swapchain_info = core.swapchain.SwapchainInfo{
             .instance = &self.instance,
             .surface = self.surface,
             .physical_device = self.pdev,
             .device = &self.device,
-            .window = self.window,
+            .extent = extent,
         };
 
         try self.swapchain.create(swapchain_info, self.allocator);
+        resize_requested = false;
     }
 
-    pub fn draw(self: *Renderer) !void {
+    pub fn startFrame(self: *Renderer) !u32 {
         const width_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.width, self.draw_image.extent.width));
         const height_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.height, self.draw_image.extent.height));
         self.draw_extent.width = @intFromFloat(width_to_be_scaled * self.scale);
         self.draw_extent.height = @intFromFloat(height_to_be_scaled * self.scale);
 
         const frame = self.getCurrentFrame();
-        var should_resize = false;
 
         _ = try self.device.waitForFences(1, @ptrCast(&frame.render_finished_fen), vk.TRUE, std.math.maxInt(u64));
 
@@ -369,9 +376,9 @@ pub const Renderer = struct {
         switch (acquire_result.result) {
             vk.Result.error_out_of_date_khr => {
                 try self.resize();
-                return;
+                return error.OutOfDateKHR;
             },
-            vk.Result.suboptimal_khr => should_resize = true,
+            vk.Result.suboptimal_khr => resize_requested = true,
             vk.Result.timeout => std.log.warn("vkAcquireNextImageKHR timeout", .{}),
             vk.Result.not_ready => std.log.warn("vkAcquireNextImageKHR not ready", .{}),
             else => {},
@@ -381,7 +388,6 @@ pub const Renderer = struct {
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/04_Swap_chain_recreation.html#_fixing_a_deadlock
         try self.device.resetFences(1, @ptrCast(&frame.render_finished_fen));
 
-        const image = self.swapchain.images[acquire_result.index];
         try self.device.resetCommandBuffer(frame.cmd, .{});
 
         const begin_info = vk.CommandBufferBeginInfo{
@@ -389,21 +395,11 @@ pub const Renderer = struct {
         };
 
         try self.device.beginCommandBuffer(frame.cmd, &begin_info);
+        return acquire_result.index;
+    }
 
-        utils.transitionImage(self.device, frame, self.draw_image.image, .undefined, .general, self.qfamilies.graphics);
-
-        clear_background(frame.cmd, self.device, self.draw_image.image);
-
-        utils.transitionImage(self.device, frame, self.draw_image.image, .general, .color_attachment_optimal, self.qfamilies.graphics);
-
-        draw_geometry(frame.cmd, self.device, self.draw_image.view, self.draw_extent, self.triangle_pipeline);
-
-        utils.transitionImage(self.device, frame, self.draw_image.image, .color_attachment_optimal, .transfer_src_optimal, self.qfamilies.graphics);
-        utils.transitionImage(self.device, frame, image, .undefined, .transfer_dst_optimal, self.qfamilies.graphics);
-
-        utils.copy_image(self.device, frame.cmd, self.draw_image.image, image, self.draw_extent, self.swapchain.extent);
-
-        utils.transitionImage(self.device, frame, image, .transfer_dst_optimal, .present_src_khr, self.qfamilies.graphics);
+    pub fn endFrame(self: *Renderer, swapchain_image_index: u32) !void {
+        const frame = self.getCurrentFrame();
 
         try self.device.endCommandBuffer(frame.cmd);
 
@@ -423,7 +419,7 @@ pub const Renderer = struct {
             .swapchain_count = 1,
             .p_wait_semaphores = @ptrCast(&frame.render_finished_sem),
             .wait_semaphore_count = 1,
-            .p_image_indices = @ptrCast(&acquire_result.index),
+            .p_image_indices = @ptrCast(&swapchain_image_index),
         };
 
         const res = self.device.queuePresentKHR(self.queues.graphics, &present_info) catch |err| {
@@ -437,79 +433,13 @@ pub const Renderer = struct {
             return;
         };
 
-        if (res == vk.Result.suboptimal_khr or should_resize or resize_requested) {
+        if (res == vk.Result.suboptimal_khr or resize_requested) {
             try self.resize();
-            resize_requested = false;
         }
 
         self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 };
-
-fn clear_background(cmd: vk.CommandBuffer, device: vk.DeviceProxy, image: vk.Image) void {
-    const value = vk.ClearColorValue{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } };
-    const range = utils.imageSubresourceRange(.{ .color_bit = true });
-    device.cmdClearColorImage(cmd, image, .general, &value, 1, @ptrCast(&range));
-}
-
-fn draw_geometry(
-    cmd: vk.CommandBuffer,
-    device: vk.DeviceProxy,
-    view: vk.ImageView,
-    extent: vk.Extent2D,
-    pipeline: vk.Pipeline,
-) void {
-    const color_attachment = vk.RenderingAttachmentInfo{
-        .image_view = view,
-        .image_layout = .color_attachment_optimal,
-        .load_op = .load,
-        .store_op = .store,
-        .resolve_mode = .{},
-        .resolve_image_layout = .undefined,
-        .resolve_image_view = .null_handle,
-        .clear_value = vk.ClearValue{
-            .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
-        },
-    };
-
-    const rend_info = vk.RenderingInfo{
-        .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
-        .layer_count = 1,
-        .color_attachment_count = 1,
-        .p_color_attachments = @ptrCast(&color_attachment),
-        .p_depth_attachment = null,
-        .p_stencil_attachment = null,
-        .view_mask = 0,
-    };
-
-    device.cmdBeginRendering(cmd, &rend_info);
-
-    device.cmdBindPipeline(cmd, .graphics, pipeline);
-
-    const viewport = vk.Viewport{
-        .x = 0,
-        .y = 0,
-        .width = @floatFromInt(extent.width),
-        .height = @floatFromInt(extent.height),
-        .min_depth = 0.0,
-        .max_depth = 1.0,
-    };
-
-    device.cmdSetViewport(cmd, 0, 1, @ptrCast(&viewport));
-
-    const scissor = vk.Rect2D{
-        .offset = .{ .x = 0, .y = 0 },
-        .extent = .{ .width = extent.width, .height = extent.height },
-    };
-
-    device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
-
-    device.cmdDraw(cmd, 3, 1, 0, 0);
-    // device.cmdBindPipeline(cmd, .graphics, .null_handle);
-    c.cImGui_ImplVulkan_RenderDrawData(c.ImGui_GetDrawData(), @ptrFromInt(@intFromEnum(cmd)));
-
-    device.cmdEndRendering(cmd);
-}
 
 fn create_shader_module(device: vk.DeviceProxy, code: []const u8) !vk.ShaderModule {
     std.debug.assert(code.len % 4 == 0); // check for alignment

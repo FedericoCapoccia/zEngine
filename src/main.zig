@@ -35,7 +35,7 @@ pub fn main() !void {
             c.ImGui_Render();
         }
 
-        engine.renderer.draw() catch |err| {
+        engine.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});
         };
     }

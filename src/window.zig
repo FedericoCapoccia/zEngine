@@ -18,6 +18,7 @@ pub const Window = struct {
 
         c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
         c.glfwWindowHint(c.GLFW_VISIBLE, c.GLFW_FALSE);
+        c.glfwWindowHint(c.GLFW_SCALE_TO_MONITOR, c.GLFW_TRUE);
         const handle = c.glfwCreateWindow(width, height, title, null, null).?;
 
         _ = c.glfwSetWindowSizeLimits(handle, 200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);

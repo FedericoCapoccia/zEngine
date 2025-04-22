@@ -11,7 +11,7 @@ pub const SwapchainInfo = struct {
     surface: vk.SurfaceKHR,
     physical_device: vk.PhysicalDevice,
     device: *const vk.DeviceProxy,
-    window: *const Window,
+    extent: vk.Extent2D,
 };
 
 const Details = struct {
@@ -95,15 +95,10 @@ pub const Swapchain = struct {
 
         const details = try Details.query(info, allocator);
         const capabilities = details.capabilities;
-        var current_extent = info.window.getFramebufferSize();
 
-        while (current_extent.width == 0 or current_extent.height == 0) {
-            current_extent = info.window.getFramebufferSize();
-            c.glfwWaitEvents();
-        }
-
-        self.extent = choose_extent(current_extent, capabilities);
+        self.extent = choose_extent(info.extent, capabilities);
         self.format = details.format;
+        std.log.warn("Creating swapchain with etent: [{d} {d}]", .{ self.extent.width, self.extent.height });
 
         const image_count = blk: {
             const desired_count = capabilities.min_image_count + 1;
@@ -145,6 +140,7 @@ pub const Swapchain = struct {
 
     fn choose_extent(current: vk.Extent2D, capabilities: vk.SurfaceCapabilitiesKHR) vk.Extent2D {
         if (capabilities.current_extent.width != std.math.maxInt(u32)) {
+            std.log.warn("Porcoddio", .{});
             return capabilities.current_extent;
         }
 
@@ -152,6 +148,8 @@ pub const Swapchain = struct {
 
         extent.width = @min(capabilities.max_image_extent.width, @max(capabilities.min_image_extent.width, extent.width));
         extent.height = @min(capabilities.max_image_extent.height, @max(capabilities.min_image_extent.height, extent.height));
+
+        std.log.warn("DIOCANE width :{d}, height: {d}", .{ extent.width, extent.height });
         return extent;
     }
 
