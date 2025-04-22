@@ -139,7 +139,6 @@ pub const Swapchain = struct {
 
     fn choose_extent(current: vk.Extent2D, capabilities: vk.SurfaceCapabilitiesKHR) vk.Extent2D {
         if (capabilities.current_extent.width != std.math.maxInt(u32)) {
-            std.log.warn("Porcoddio", .{});
             return capabilities.current_extent;
         }
 
