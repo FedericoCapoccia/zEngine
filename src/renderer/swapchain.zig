@@ -143,11 +143,8 @@ pub const Swapchain = struct {
         }
 
         var extent = current;
-
         extent.width = @min(capabilities.max_image_extent.width, @max(capabilities.min_image_extent.width, extent.width));
         extent.height = @min(capabilities.max_image_extent.height, @max(capabilities.min_image_extent.height, extent.height));
-
-        std.log.warn("DIOCANE width :{d}, height: {d}", .{ extent.width, extent.height });
         return extent;
     }
 
