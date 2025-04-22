@@ -341,7 +341,6 @@ pub const Renderer = struct {
 
         var extent = self.window.getFramebufferSize();
         while (extent.width == 0 or extent.height == 0) {
-            std.log.debug("Extent is 0, waiting for events...", .{});
             c.glfwWaitEvents();
             extent = self.window.getFramebufferSize();
         }

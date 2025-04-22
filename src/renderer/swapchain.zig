@@ -98,7 +98,6 @@ pub const Swapchain = struct {
 
         self.extent = choose_extent(info.extent, capabilities);
         self.format = details.format;
-        std.log.warn("Creating swapchain with etent: [{d} {d}]", .{ self.extent.width, self.extent.height });
 
         const image_count = blk: {
             const desired_count = capabilities.min_image_count + 1;
