@@ -278,7 +278,7 @@ pub const Renderer = struct {
             io.Fonts,
             @constCast(font),
             font.len,
-            25.0,
+            20.0,
             &font_cfg,
             null,
         );
