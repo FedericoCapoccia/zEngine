@@ -8,6 +8,8 @@ const core = @import("renderer/core.zig");
 const utils = @import("renderer/utils.zig");
 const Window = @import("window.zig").Window;
 
+const font = @embedFile("resources/jetbrainsmono.ttf");
+
 const enable_validation: bool = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     else => false,
@@ -258,6 +260,35 @@ pub const Renderer = struct {
 
         const imgui_pool = try device.createDescriptorPool(&pool_create_info, null);
         _ = c.ImGui_CreateContext(null);
+
+        var io = c.ImGui_GetIO().*;
+        io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
+        io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
+
+        var font_cfg = c.ImFontConfig{
+            .FontDataOwnedByAtlas = false,
+            .GlyphMaxAdvanceX = std.math.floatMax(f32),
+            .RasterizerMultiply = 1.0,
+            .RasterizerDensity = 1.0,
+            .OversampleH = 2,
+            .OversampleV = 2,
+        };
+
+        _ = c.ImFontAtlas_AddFontFromMemoryTTF(
+            io.Fonts,
+            @constCast(font),
+            font.len,
+            25.0,
+            &font_cfg,
+            null,
+        );
+
+        var scalex: f32 = undefined;
+        var scaley: f32 = undefined;
+        c.glfwGetWindowContentScale(window.handle, &scalex, &scaley);
+
+        c.ImGuiStyle_ScaleAllSizes(c.ImGui_GetStyle(), @max(scalex, scaley));
+
         _ = c.cImGui_ImplGlfw_InitForVulkan(window.handle, true);
 
         const imgui_pipeline_info = c.VkPipelineRenderingCreateInfo{

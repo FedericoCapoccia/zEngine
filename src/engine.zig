@@ -123,6 +123,7 @@ pub const Engine = struct {
 
         device.cmdDraw(cmd, 3, 1, 0, 0);
         // device.cmdBindPipeline(cmd, .graphics, .null_handle);
+
         c.cImGui_ImplVulkan_RenderDrawData(c.ImGui_GetDrawData(), @ptrFromInt(@intFromEnum(cmd)));
 
         device.cmdEndRendering(cmd);

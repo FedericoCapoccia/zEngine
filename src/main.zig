@@ -22,14 +22,13 @@ pub fn main() !void {
     while (!engine.window.shouldClose()) {
         @import("window.zig").Window.pollEvents();
 
-        // var show_demo_window: bool = true;
-
         {
             var open = true;
-            // Imgui frame
+
             c.cImGui_ImplVulkan_NewFrame();
             c.cImGui_ImplGlfw_NewFrame();
             c.ImGui_NewFrame();
+
             c.ImGui_ShowDemoWindow(&open);
 
             c.ImGui_Render();
