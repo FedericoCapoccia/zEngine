@@ -22,8 +22,8 @@ pub fn main() !void {
     while (!engine.window.shouldClose()) {
         @import("window.zig").Window.pollEvents();
 
-        c.cImGui_ImplGlfw_NewFrame();
         c.cImGui_ImplVulkan_NewFrame();
+        c.cImGui_ImplGlfw_NewFrame();
         c.ImGui_NewFrame();
 
         engine.draw() catch |err| {

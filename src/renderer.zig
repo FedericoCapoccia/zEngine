@@ -266,6 +266,7 @@ pub const Renderer = struct {
         };
 
         const imgui_pool = try device.createDescriptorPool(&pool_create_info, null);
+
         const imgui_ctx = c.ImGui_CreateContext(null).?;
 
         var io = c.ImGui_GetIO().*;
@@ -297,6 +298,7 @@ pub const Renderer = struct {
         c.glfwGetWindowContentScale(window.handle, &scalex, &scaley);
 
         const style = c.ImGui_GetStyle();
+        c.ImGui_StyleColorsDark(style);
 
         style.*.WindowRounding = 0.0;
         style.*.Colors[c.ImGuiCol_WindowBg].w = 1.0;

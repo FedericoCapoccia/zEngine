@@ -48,11 +48,14 @@ pub const Engine = struct {
         };
 
         {
+            c.ImGui_ShowDemoWindow(null);
             c.ImGui_Text("Hello, world %d", .{123});
             if (c.ImGui_Button("Save")) {
                 std.log.info("Saved", .{});
             }
         }
+
+        c.ImGui_Render();
 
         const device = self.renderer.device;
         const draw_image: *core.image.AllocatedImage = &self.renderer.draw_image;
@@ -72,9 +75,6 @@ pub const Engine = struct {
         utils.copy_image(device, frame.cmd, draw_image.image, swapchain_image, draw_extent, self.renderer.swapchain.extent);
 
         utils.transitionImage(device, frame, swapchain_image, .transfer_dst_optimal, .present_src_khr, qfamilies.graphics);
-
-        c.ImGui_UpdatePlatformWindows();
-        c.ImGui_RenderPlatformWindowsDefault();
 
         try self.renderer.endFrame(idx);
     }
@@ -133,10 +133,11 @@ pub const Engine = struct {
 
         device.cmdDraw(cmd, 3, 1, 0, 0);
 
-        c.ImGui_Render();
-
         const data = c.ImGui_GetDrawData();
         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
+        c.ImGui_UpdatePlatformWindows();
+        c.ImGui_RenderPlatformWindowsDefault();
+
         device.cmdEndRendering(cmd);
     }
 };
