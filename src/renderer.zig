@@ -116,6 +116,7 @@ pub const Renderer = struct {
     current_frame: u8 = 0,
 
     imgui_pool: vk.DescriptorPool,
+    imgui_ctx: *c.ImGuiContext,
 
     pub fn getCurrentFrame(self: *const Renderer) *FrameData {
         return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % MAX_FRAMES_IN_FLIGHT)]));
@@ -159,6 +160,12 @@ pub const Renderer = struct {
         };
         errdefer core.device.destroy(device, allocator);
         const queues = core.device.getQueues(device, qfamilies);
+
+        // TODO: idk
+        // c.cImGui_ImplVulkanH_CreateOrResizeWindow(
+        //     @ptrFromInt(@intFromEnum(instance.handle)),
+        //     @ptrFromInt(@intFromEnum(pdevice)),
+        // );
 
         const vma_info = c.VmaAllocatorCreateInfo{
             .vulkanApiVersion = c.VK_API_VERSION_1_4,
@@ -259,11 +266,13 @@ pub const Renderer = struct {
         };
 
         const imgui_pool = try device.createDescriptorPool(&pool_create_info, null);
-        _ = c.ImGui_CreateContext(null);
+        const imgui_ctx = c.ImGui_CreateContext(null).?;
 
         var io = c.ImGui_GetIO().*;
         io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
         io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
+        io.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
 
         var font_cfg = c.ImFontConfig{
             .FontDataOwnedByAtlas = false,
@@ -287,7 +296,12 @@ pub const Renderer = struct {
         var scaley: f32 = undefined;
         c.glfwGetWindowContentScale(window.handle, &scalex, &scaley);
 
-        c.ImGuiStyle_ScaleAllSizes(c.ImGui_GetStyle(), @max(scalex, scaley));
+        const style = c.ImGui_GetStyle();
+
+        style.*.WindowRounding = 0.0;
+        style.*.Colors[c.ImGuiCol_WindowBg].w = 1.0;
+
+        c.ImGuiStyle_ScaleAllSizes(style, @max(scalex, scaley));
 
         _ = c.cImGui_ImplGlfw_InitForVulkan(window.handle, true);
 
@@ -336,6 +350,7 @@ pub const Renderer = struct {
             .triangle_pipeline = pipeline,
             .triangle_layout = pip_layout,
             .imgui_pool = imgui_pool,
+            .imgui_ctx = imgui_ctx,
         };
     }
 
@@ -344,6 +359,8 @@ pub const Renderer = struct {
 
         c.cImGui_ImplVulkan_Shutdown();
         self.device.destroyDescriptorPool(self.imgui_pool, null);
+        c.cImGui_ImplGlfw_Shutdown();
+        c.ImGui_DestroyContext(self.imgui_ctx);
 
         for (self.frames, 0..) |_, idx| {
             self.frames[idx].deinit(self.device);
@@ -425,6 +442,7 @@ pub const Renderer = struct {
         };
 
         try self.device.beginCommandBuffer(frame.cmd, &begin_info);
+
         return acquire_result.index;
     }
 

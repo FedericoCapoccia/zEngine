@@ -47,6 +47,13 @@ pub const Engine = struct {
             return error.FailedToDraw;
         };
 
+        {
+            c.ImGui_Text("Hello, world %d", .{123});
+            if (c.ImGui_Button("Save")) {
+                std.log.info("Saved", .{});
+            }
+        }
+
         const device = self.renderer.device;
         const draw_image: *core.image.AllocatedImage = &self.renderer.draw_image;
         const draw_extent = self.renderer.draw_extent;
@@ -65,6 +72,9 @@ pub const Engine = struct {
         utils.copy_image(device, frame.cmd, draw_image.image, swapchain_image, draw_extent, self.renderer.swapchain.extent);
 
         utils.transitionImage(device, frame, swapchain_image, .transfer_dst_optimal, .present_src_khr, qfamilies.graphics);
+
+        c.ImGui_UpdatePlatformWindows();
+        c.ImGui_RenderPlatformWindowsDefault();
 
         try self.renderer.endFrame(idx);
     }
@@ -122,10 +132,11 @@ pub const Engine = struct {
         device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
 
         device.cmdDraw(cmd, 3, 1, 0, 0);
-        // device.cmdBindPipeline(cmd, .graphics, .null_handle);
 
-        c.cImGui_ImplVulkan_RenderDrawData(c.ImGui_GetDrawData(), @ptrFromInt(@intFromEnum(cmd)));
+        c.ImGui_Render();
 
+        const data = c.ImGui_GetDrawData();
+        c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
         device.cmdEndRendering(cmd);
     }
 };

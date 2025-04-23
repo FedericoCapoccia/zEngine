@@ -18,8 +18,6 @@
           pkg-config
 
           vulkan-loader
-          vulkan-validation-layers
-          vulkan-tools
           shaderc
 
           wayland
@@ -28,5 +26,7 @@
           libxkbcommon
         ];
       };
+
+      VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
     };
 }

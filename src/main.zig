@@ -22,17 +22,9 @@ pub fn main() !void {
     while (!engine.window.shouldClose()) {
         @import("window.zig").Window.pollEvents();
 
-        {
-            var open = true;
-
-            c.cImGui_ImplVulkan_NewFrame();
-            c.cImGui_ImplGlfw_NewFrame();
-            c.ImGui_NewFrame();
-
-            c.ImGui_ShowDemoWindow(&open);
-
-            c.ImGui_Render();
-        }
+        c.cImGui_ImplVulkan_NewFrame();
+        c.cImGui_ImplGlfw_NewFrame();
+        c.ImGui_NewFrame();
 
         engine.draw() catch |err| {
             std.log.err("Failed to draw: {s}", .{@errorName(err)});
