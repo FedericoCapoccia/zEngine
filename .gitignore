@@ -6,6 +6,7 @@ zig-out/
 
 *.spv
 imgui.ini
+vkvia.html
 
 .direnv/
 thirdparty/VMA
