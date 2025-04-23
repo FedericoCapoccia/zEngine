@@ -269,11 +269,16 @@ pub const Renderer = struct {
 
         const imgui_ctx = c.ImGui_CreateContext(null).?;
 
-        var io = c.ImGui_GetIO().*;
-        io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
-        io.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
-        io.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
-        io.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
+        const io = c.ImGui_GetIO();
+        io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
+        io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
+        io.*.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
+        io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
+
+        if (builtin.os.tag == .linux) {
+            io.*.ConfigViewportsNoDecoration = false;
+            io.*.MouseDrawCursor = true;
+        }
 
         var font_cfg = c.ImFontConfig{
             .FontDataOwnedByAtlas = false,
@@ -285,7 +290,7 @@ pub const Renderer = struct {
         };
 
         _ = c.ImFontAtlas_AddFontFromMemoryTTF(
-            io.Fonts,
+            io.*.Fonts,
             @constCast(font),
             font.len,
             20.0,
