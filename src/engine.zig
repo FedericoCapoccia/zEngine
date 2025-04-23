@@ -17,7 +17,7 @@ pub const Engine = struct {
     pub fn init(engine: *Engine) !void {
         std.log.info("Initializing engine", .{});
 
-        engine.window = Window.init(800, 600, "zEngine") catch |err| {
+        engine.window = Window.init(1280, 720, "zEngine") catch |err| {
             std.log.err("Failed to initialize window: {s}", .{@errorName(err)});
             return error.WindowCreationFailed;
         };
