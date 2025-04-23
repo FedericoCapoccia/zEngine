@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const Window = @import("window.zig").Window;
 const Renderer = @import("renderer.zig").Renderer;
@@ -135,8 +136,11 @@ pub const Engine = struct {
 
         const data = c.ImGui_GetDrawData();
         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
-        c.ImGui_UpdatePlatformWindows();
-        c.ImGui_RenderPlatformWindowsDefault();
+
+        if (builtin.os.tag == .windows) {
+            c.ImGui_UpdatePlatformWindows();
+            c.ImGui_RenderPlatformWindowsDefault();
+        }
 
         device.cmdEndRendering(cmd);
     }

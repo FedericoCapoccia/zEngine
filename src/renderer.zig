@@ -161,12 +161,6 @@ pub const Renderer = struct {
         errdefer core.device.destroy(device, allocator);
         const queues = core.device.getQueues(device, qfamilies);
 
-        // TODO: idk
-        // c.cImGui_ImplVulkanH_CreateOrResizeWindow(
-        //     @ptrFromInt(@intFromEnum(instance.handle)),
-        //     @ptrFromInt(@intFromEnum(pdevice)),
-        // );
-
         const vma_info = c.VmaAllocatorCreateInfo{
             .vulkanApiVersion = c.VK_API_VERSION_1_4,
             .instance = @ptrFromInt(@intFromEnum(instance.handle)),
@@ -271,13 +265,10 @@ pub const Renderer = struct {
 
         const io = c.ImGui_GetIO();
         io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
-        io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
-        io.*.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
-        io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
 
-        if (builtin.os.tag == .linux) {
-            io.*.ConfigViewportsNoDecoration = false;
-            io.*.MouseDrawCursor = true;
+        if (builtin.os.tag == .windows) {
+            io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
+            io.*.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
         }
 
         var font_cfg = c.ImFontConfig{
