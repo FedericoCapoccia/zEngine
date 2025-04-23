@@ -265,6 +265,7 @@ pub const Renderer = struct {
 
         const io = c.ImGui_GetIO();
         io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
+        io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
 
         if (builtin.os.tag == .windows) {
             io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
