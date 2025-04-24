@@ -12,6 +12,10 @@ const enable_validation: bool = switch (builtin.mode) {
     else => false,
 };
 
+const device_extensions = [_][*:0]const u8{
+    vk.extensions.khr_swapchain.name,
+};
+
 const log = std.log.scoped(.render_context);
 
 pub const RenderContext = struct {
@@ -143,6 +147,98 @@ pub const RenderContext = struct {
             if (devices.len == 0) {
                 return error.NoPhysicalDeviceFound;
             }
+
+            var max_score: u32 = 0;
+            for (devices) |device| {
+                const props = this.instance.getPhysicalDeviceProperties(device);
+                log.debug("Found PhysicalDevice [{s}]", .{props.device_name});
+                const score: u32 = switch (props.device_type) {
+                    .discrete_gpu => 10,
+                    .integrated_gpu => 5,
+                    else => 1,
+                };
+
+                if (score > max_score) {
+                    max_score = score;
+                    this.physical_device = device;
+                }
+            }
+
+            const props = this.instance.getPhysicalDeviceProperties(this.physical_device);
+            log.info("Selected [{s}]", .{props.device_name});
+
+            const supported_extensions = try this.instance.enumerateDeviceExtensionPropertiesAlloc(
+                this.physical_device,
+                null,
+                allocator,
+            );
+            defer allocator.free(supported_extensions);
+            vk_utils.logSupportedExtensions(supported_extensions);
+
+            if (!vk_utils.supportsRequiredExtensions(supported_extensions, &device_extensions)) {
+                return error.ExtensionNotPresent;
+            }
+
+            log.debug("Scanning Physical Device Queue Families:", .{});
+            const queue_properties = try this.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(this.physical_device, allocator);
+            defer allocator.free(queue_properties);
+
+            for (queue_properties, 0..) |qprops, idx| {
+                const flags = qprops.queue_flags;
+                const supports_present = try this.instance.getPhysicalDeviceSurfaceSupportKHR(
+                    this.physical_device,
+                    @intCast(idx),
+                    this.surface,
+                );
+                if (flags.graphics_bit and supports_present == vk.TRUE) {
+                    std.log.debug("\tGraphics queue found [{d}]", .{idx});
+                    this.graphics_queue = Queue{
+                        .family = @intCast(idx),
+                        .handle = .null_handle,
+                    };
+                    break;
+                }
+            }
+
+            var compute_index: ?u32 = null;
+            for (queue_properties, 0..) |qprops, idx| {
+                const flags = qprops.queue_flags;
+                if (!flags.graphics_bit and flags.compute_bit) {
+                    std.log.debug("\tDedicated compute queue found [{d}]", .{idx});
+                    compute_index = @intCast(idx);
+                    break;
+                }
+            }
+
+            if (compute_index == null) {
+                std.log.warn("\tDedicated compute queue not found, falling back to graphics queue", .{});
+                compute_index = this.graphics_queue.family;
+            }
+
+            this.compute_queue = Queue{
+                .family = @intCast(compute_index.?),
+                .handle = .null_handle,
+            };
+
+            var transfer_index: ?u32 = null;
+            for (queue_properties, 0..) |qprops, idx| {
+                const flags = qprops.queue_flags;
+                if (!flags.graphics_bit and !flags.compute_bit and flags.transfer_bit) {
+                    std.log.debug("\tDedicated transfer queue found [{d}]", .{idx});
+                    transfer_index = @intCast(idx);
+                    break;
+                }
+            }
+
+            if (transfer_index == null) {
+                std.log.warn("\tDedicated transfer queue not found, falling back to compute queue", .{});
+                transfer_index = compute_index;
+            }
+
+            this.transfer_queue = Queue{
+                .family = @intCast(transfer_index.?),
+                .handle = .null_handle,
+            };
 
             log.debug("===================================================", .{});
             log.debug("", .{});
