@@ -35,7 +35,7 @@ const Details = struct {
 
         const format = blk: {
             for (formats) |format| {
-                if (format.format == .b8g8r8a8_srgb and format.color_space == .srgb_nonlinear_khr) {
+                if (format.format == .b8g8r8a8_unorm and format.color_space == .srgb_nonlinear_khr) {
                     break :blk format;
                 }
             }

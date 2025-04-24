@@ -107,7 +107,6 @@ pub const Renderer = struct {
 
     draw_image: core.image.AllocatedImage,
     draw_extent: vk.Extent2D,
-    scale: f32 = 1.0,
 
     triangle_pipeline: vk.Pipeline,
     triangle_layout: vk.PipelineLayout,
@@ -405,10 +404,8 @@ pub const Renderer = struct {
     }
 
     pub fn startFrame(self: *Renderer) !u32 {
-        const width_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.width, self.draw_image.extent.width));
-        const height_to_be_scaled: f32 = @floatFromInt(@min(self.swapchain.extent.height, self.draw_image.extent.height));
-        self.draw_extent.width = @intFromFloat(width_to_be_scaled * self.scale);
-        self.draw_extent.height = @intFromFloat(height_to_be_scaled * self.scale);
+        self.draw_extent.width = @min(self.swapchain.extent.width, self.draw_image.extent.width);
+        self.draw_extent.height = @min(self.swapchain.extent.height, self.draw_image.extent.height);
 
         const frame = self.getCurrentFrame();
 
