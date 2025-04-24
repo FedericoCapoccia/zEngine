@@ -3,13 +3,13 @@ const builtin = @import("builtin");
 
 const vk = @import("vulkan");
 
-const c = @import("clibs.zig").c;
+const c = @import("clibs.zig").glfw;
 const core = @import("renderer/core.zig");
-
-pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *c.GLFWwindow, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
 
 pub const Window = struct {
     handle: *c.GLFWwindow,
+
+    pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
 
     pub fn init(width: i32, height: i32, title: [*:0]const u8) !Window {
         std.log.info("Initializing window", .{});
@@ -24,16 +24,9 @@ pub const Window = struct {
         _ = c.glfwSetWindowSizeLimits(handle, 200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
 
         if (builtin.target.os.tag == .windows) {
-            const native = @cImport({
-                @cDefine("GLFW_EXPOSE_NATIVE_WIN32", {});
-                @cInclude("GLFW/glfw3.h");
-                @cInclude("GLFW/glfw3native.h");
-                @cInclude("dwmapi.h");
-            });
-
-            const hwnd = native.glfwGetWin32Window(@ptrCast(handle));
-            const dark: native.BOOL = native.TRUE;
-            _ = native.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
+            const hwnd = c.glfwGetWin32Window(@ptrCast(handle));
+            const dark = c.TRUE;
+            _ = c.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
         }
 
         return Window{ .handle = handle };
@@ -62,6 +55,10 @@ pub const Window = struct {
             .width = @intCast(mode.*.width),
             .height = @intCast(mode.*.height),
         };
+    }
+
+    pub fn setOnResize(self: *const Window, callback: c.GLFWframebuffersizefun) void {
+        _ = c.glfwSetFramebufferSizeCallback(self.handle, callback);
     }
 
     pub fn show(self: *const Window) void {

@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) !void {
         .x11 = false,
         .wayland = true,
     });
+    exe.root_module.addImport("zglfw", zglfw.module("root"));
 
     if (target.result.os.tag != .emscripten) {
         exe.linkLibrary(zglfw.artifact("glfw"));

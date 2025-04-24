@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const c = @import("clibs.zig").c;
-
 const Engine = @import("engine.zig").Engine;
 const log_fn = @import("log.zig");
 
@@ -19,15 +17,17 @@ pub fn main() !void {
     try Engine.init(&engine);
     defer engine.shutdown();
 
-    while (!engine.window.shouldClose()) {
-        @import("window.zig").Window.pollEvents();
+    try engine.run();
 
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
-
-        engine.draw() catch |err| {
-            std.log.err("Failed to draw: {s}", .{@errorName(err)});
-        };
-    }
+    // while (!engine.window.shouldClose()) {
+    //     @import("window.zig").Window.pollEvents();
+    //
+    //     // c.cImGui_ImplVulkan_NewFrame();
+    //     // c.cImGui_ImplGlfw_NewFrame();
+    //     // c.ImGui_NewFrame();
+    //     //
+    //     // engine.draw() catch |err| {
+    //     //     std.log.err("Failed to draw: {s}", .{@errorName(err)});
+    //     // };
+    // }
 }
