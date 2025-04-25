@@ -1,12 +1,16 @@
-const vk = @import("vulkan");
-const glfw = @import("zglfw");
+const zvk = @import("vulkan");
+const zglfw = @import("zglfw");
 
-const c = @cImport({
-    @cDefine("GLFW_INCLUDE_NONE", "");
-    @cInclude("GLFW/glfw3.h");
-});
+pub const clibs = struct {
+    pub const glfw = @cImport({
+        @cDefine("GLFW_INCLUDE_NONE", "");
+        @cInclude("GLFW/glfw3.h");
+    });
+    pub const vk = @cImport({
+        @cInclude("vulkan/vulkan.h");
+        @cInclude("vk_mem_alloc.h");
+    });
 
-pub const GLFW_DONT_CARE = c.GLFW_DONT_CARE;
-
-pub extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
-pub extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *const glfw.Window, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
+    pub extern fn glfwGetInstanceProcAddress(instance: zvk.Instance, procname: [*:0]const u8) zvk.PfnVoidFunction;
+    pub extern fn glfwCreateWindowSurface(instance: zvk.Instance, window: *const zglfw.Window, allocation_callbacks: ?*const zvk.AllocationCallbacks, surface: *zvk.SurfaceKHR) zvk.Result;
+};

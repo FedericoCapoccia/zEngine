@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("../c.zig");
+const c = @import("../c.zig").clibs;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const vk_utils = @import("utils.zig");
 
@@ -30,7 +30,7 @@ pub const RenderContext = struct {
     compute_queue: Queue,
     transfer_queue: Queue,
     swapchain: Swapchain,
-    // vulkan memory allocation
+    vma: c.vk.VmaAllocator,
 
     pub const Queue = struct {
         family: u32,
@@ -337,6 +337,26 @@ pub const RenderContext = struct {
         }
         errdefer this.swapchain.destroy(allocator);
 
+        // ===================================================================
+        // [SECTION] VulkanMemoryAllocator
+        // ===================================================================
+        {
+            log.debug("Creating VulkanMemoryAllocator", .{});
+
+            const info = c.vk.VmaAllocatorCreateInfo{
+                .vulkanApiVersion = c.vk.VK_API_VERSION_1_4,
+                .instance = @ptrFromInt(@intFromEnum(this.instance.handle)),
+                .physicalDevice = @ptrFromInt(@intFromEnum(this.physical_device)),
+                .device = @ptrFromInt(@intFromEnum(this.device.handle)),
+            };
+
+            if (c.vk.vmaCreateAllocator(&info, &this.vma) != c.vk.VK_SUCCESS) {
+                std.log.err("Failed to create VulkanMemoryAllocator", .{});
+                return error.VmaAllocatorCreationFailed;
+            }
+        }
+        errdefer c.vk.vmaDestroyAllocator(this.vma);
+
         return this;
     }
 
@@ -344,7 +364,9 @@ pub const RenderContext = struct {
         self.device.deviceWaitIdle() catch {};
         log.info("Destroying render context", .{});
 
-        self.swapchain.destroy(&self.device, self.allocator);
+        c.vk.vmaDestroyAllocator(self.vma);
+
+        self.swapchain.destroy(self.allocator);
 
         self.device.destroyDevice(null);
         self.allocator.destroy(self.device.wrapper);

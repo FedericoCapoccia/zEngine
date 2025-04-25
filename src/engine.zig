@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("c.zig");
+const c = @import("c.zig").clibs;
 const RenderContext = @import("vulkan/context.zig").RenderContext;
 
 const log = std.log.scoped(.engine);
@@ -50,7 +50,7 @@ pub const Engine = struct {
         self.window = try glfw.createWindow(1280, 720, "zEngine", null);
         errdefer self.window.destroy();
 
-        self.window.setSizeLimits(200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
+        self.window.setSizeLimits(200, 200, c.glfw.GLFW_DONT_CARE, c.glfw.GLFW_DONT_CARE);
         self.window.setUserPointer(@ptrCast(self));
         _ = self.window.setFramebufferSizeCallback(onFramebufferResize);
 

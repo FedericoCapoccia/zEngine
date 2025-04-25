@@ -118,12 +118,12 @@ pub const Swapchain = struct {
         }
     }
 
-    pub fn destroy(self: *const Swapchain, device: *const vk.DeviceProxy, allocator: std.mem.Allocator) void {
+    pub fn destroy(self: *const Swapchain, allocator: std.mem.Allocator) void {
         for (self.views) |view| {
-            device.destroyImageView(view, null);
+            self.device.destroyImageView(view, null);
         }
         allocator.free(self.views);
-        device.destroySwapchainKHR(self.handle, null);
+        self.device.destroySwapchainKHR(self.handle, null);
         allocator.free(self.images);
     }
 
