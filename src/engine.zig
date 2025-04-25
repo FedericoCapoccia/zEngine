@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("c.zig").headers;
+const c = @import("c");
 const RenderContext = @import("vulkan/context.zig").RenderContext;
 const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
 

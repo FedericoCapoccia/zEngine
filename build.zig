@@ -16,12 +16,6 @@ pub fn build(b: *std.Build) !void {
     });
     exe.linkLibCpp();
 
-    exe.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
-    exe.addIncludePath(b.path("thirdparty/VMA/include"));
-    exe.addIncludePath(b.path("thirdparty/GLFW/include"));
-    exe.addIncludePath(b.path("thirdparty/imgui"));
-    exe.addCSourceFile(.{ .file = b.path("src/vulkan/vma.cpp"), .flags = &.{""} });
-
     const zglfw = b.dependency("zglfw", .{
         .x11 = false,
         .wayland = true,
@@ -32,13 +26,19 @@ pub fn build(b: *std.Build) !void {
         exe.linkLibrary(zglfw.artifact("glfw"));
     }
 
+    exe.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+    exe.addIncludePath(b.path("thirdparty/VMA/include"));
+    exe.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
+    exe.addIncludePath(b.path("thirdparty/imgui"));
+    exe.addCSourceFile(.{ .file = b.path("src/vulkan/vma.cpp"), .flags = &.{""} });
+
     const imgui_lib = b.addStaticLibrary(.{
         .name = "cimgui",
         .target = target,
         .optimize = optimize,
     });
     imgui_lib.addIncludePath(b.path("thirdparty/imgui"));
-    imgui_lib.addIncludePath(b.path("thirdparty/GLFW/include"));
+    imgui_lib.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
     imgui_lib.linkLibCpp();
     imgui_lib.addCSourceFiles(.{
         .files = &.{
@@ -63,6 +63,26 @@ pub fn build(b: *std.Build) !void {
 
     imgui_lib.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
     exe.linkLibrary(imgui_lib);
+
+    const c_translate = b.addTranslateC(.{
+        .root_source_file = b.addWriteFiles().add("c.h",
+            \\#define GLFW_INCLUDE_NONE
+            \\#include <GLFW/glfw3.h>
+            \\#include <vulkan/vulkan.h>
+            \\#include <vk_mem_alloc.h>
+            \\#include <dcimgui.h>
+            \\#include <dcimgui_impl_glfw.h>
+            \\#include <dcimgui_impl_vulkan.h>
+        ),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    c_translate.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
+    c_translate.addIncludePath(b.path("thirdparty/VMA/include"));
+    c_translate.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+    c_translate.addIncludePath(b.path("thirdparty/imgui"));
+    exe.root_module.addImport("c", c_translate.createModule());
 
     //=================================================================================================================
     // Vulkan

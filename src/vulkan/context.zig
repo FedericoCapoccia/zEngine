@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("../c.zig").headers;
+const c = @import("c");
 const Swapchain = @import("swapchain.zig").Swapchain;
 const vk_utils = @import("utils.zig");
 
