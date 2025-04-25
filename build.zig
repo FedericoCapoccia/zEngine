@@ -28,8 +28,8 @@ pub fn build(b: *std.Build) !void {
 
     exe.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
     exe.addIncludePath(b.path("thirdparty/VMA/include"));
-    exe.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
-    exe.addIncludePath(b.path("thirdparty/imgui"));
+    //exe.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
+    //exe.addIncludePath(b.path("thirdparty/imgui"));
     exe.addCSourceFile(.{ .file = b.path("src/vulkan/vma.cpp"), .flags = &.{""} });
 
     const imgui_lib = b.addStaticLibrary(.{
@@ -78,10 +78,13 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .link_libc = true,
     });
+
     c_translate.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
     c_translate.addIncludePath(b.path("thirdparty/VMA/include"));
     c_translate.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
     c_translate.addIncludePath(b.path("thirdparty/imgui"));
+    const c_mod = c_translate.createModule();
+    c_mod.addCSourceFile(.{ .file = b.path("src/vulkan/vma.cpp"), .flags = &.{""} });
     exe.root_module.addImport("c", c_translate.createModule());
 
     //=================================================================================================================
