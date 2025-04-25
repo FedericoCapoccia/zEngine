@@ -5,6 +5,7 @@ const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
 const c = @import("../c.zig");
+const Swapchain = @import("swapchain.zig").Swapchain;
 const vk_utils = @import("utils.zig");
 
 const enable_validation: bool = switch (builtin.mode) {
@@ -28,7 +29,7 @@ pub const RenderContext = struct {
     graphics_queue: Queue,
     compute_queue: Queue,
     transfer_queue: Queue,
-    // swapchain
+    swapchain: Swapchain,
     // vulkan memory allocation
 
     pub const Queue = struct {
@@ -36,7 +37,7 @@ pub const RenderContext = struct {
         handle: vk.Queue,
     };
 
-    pub fn new(allocator: std.mem.Allocator, window: *const glfw.Window) !RenderContext {
+    pub fn new(allocator: std.mem.Allocator, window: *glfw.Window) !RenderContext {
         log.info("Creating render context", .{});
         var this: RenderContext = undefined;
         this.allocator = allocator;
@@ -317,12 +318,33 @@ pub const RenderContext = struct {
         errdefer allocator.destroy(this.device.wrapper);
         errdefer this.device.destroyDevice(null);
 
+        // ===================================================================
+        // [SECTION] Swapchain creation
+        // ===================================================================
+        {
+            log.debug("Creating Swapchain", .{});
+            const width, const height = window.getFramebufferSize();
+
+            const info = Swapchain.Info{
+                .instance = &this.instance,
+                .surface = this.surface,
+                .physical_device = this.physical_device,
+                .extent = vk.Extent2D{ .width = @intCast(width), .height = @intCast(height) },
+            };
+
+            this.swapchain = Swapchain{ .device = this.device };
+            try this.swapchain.createOrResize(info, allocator);
+        }
+        errdefer this.swapchain.destroy(allocator);
+
         return this;
     }
 
     pub fn destroy(self: *const RenderContext) void {
         self.device.deviceWaitIdle() catch {};
         log.info("Destroying render context", .{});
+
+        self.swapchain.destroy(&self.device, self.allocator);
 
         self.device.destroyDevice(null);
         self.allocator.destroy(self.device.wrapper);
