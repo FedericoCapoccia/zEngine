@@ -96,6 +96,7 @@ pub const Engine = struct {
                 .width = @intCast(monitor_capabilities.width),
                 .height = @intCast(monitor_capabilities.height),
             };
+            log.debug("Creating draw image with size [{d}x{d}]", .{ monitor_extent.width, monitor_extent.height });
 
             const format = vk.Format.r32g32b32a32_sfloat;
 

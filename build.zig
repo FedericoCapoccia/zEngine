@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
     exe.addIncludePath(b.path("thirdparty/VMA/include"));
     exe.addIncludePath(b.path("thirdparty/GLFW/include"));
     exe.addIncludePath(b.path("thirdparty/imgui"));
-    exe.addCSourceFile(.{ .file = b.path("src/renderer/vma.cpp"), .flags = &.{""} });
+    exe.addCSourceFile(.{ .file = b.path("src/vulkan/vma.cpp"), .flags = &.{""} });
 
     const zglfw = b.dependency("zglfw", .{
         .x11 = false,
