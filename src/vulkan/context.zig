@@ -127,6 +127,7 @@ pub const RenderContext = struct {
             log.debug("===================================================", .{});
             log.debug("", .{});
         }
+        errdefer allocator.destroy(this.instance.wrapper);
         errdefer this.instance.destroyInstance(null);
 
         // ===================================================================
@@ -244,11 +245,86 @@ pub const RenderContext = struct {
             log.debug("", .{});
         }
 
+        // ===================================================================
+        // [SECTION] Logical Device
+        // ===================================================================
+        {
+            log.debug("Creating Logical Device", .{});
+            const priorities = [_]f32{1.0};
+            const graphics = this.graphics_queue.family;
+            const compute = this.compute_queue.family;
+            const transfer = this.transfer_queue.family;
+
+            var queue_infos = std.ArrayList(vk.DeviceQueueCreateInfo).init(allocator);
+            defer queue_infos.deinit();
+
+            try queue_infos.append(vk.DeviceQueueCreateInfo{ // Graphics queue guarranteed
+                .queue_family_index = graphics,
+                .queue_count = 1,
+                .p_queue_priorities = &priorities,
+            });
+
+            if (compute != graphics) {
+                try queue_infos.append(vk.DeviceQueueCreateInfo{
+                    .queue_family_index = compute,
+                    .queue_count = 1,
+                    .p_queue_priorities = &priorities,
+                });
+            }
+
+            if (transfer != graphics and transfer != compute) {
+                try queue_infos.append(vk.DeviceQueueCreateInfo{
+                    .queue_family_index = transfer,
+                    .queue_count = 1,
+                    .p_queue_priorities = &priorities,
+                });
+            }
+
+            const timeline_semaphore_feature = vk.PhysicalDeviceTimelineSemaphoreFeatures{ .timeline_semaphore = 1 };
+
+            const dynamic_rendering_feature = vk.PhysicalDeviceDynamicRenderingFeatures{
+                .dynamic_rendering = 1,
+                .p_next = @ptrCast(@constCast(&timeline_semaphore_feature)),
+            };
+
+            const sync2_feature = vk.PhysicalDeviceSynchronization2Features{
+                .synchronization_2 = 1,
+                .p_next = @ptrCast(@constCast(&dynamic_rendering_feature)),
+            };
+
+            const info = vk.DeviceCreateInfo{
+                .p_enabled_features = &.{},
+                .p_queue_create_infos = queue_infos.items.ptr,
+                .queue_create_info_count = @intCast(queue_infos.items.len),
+                .pp_enabled_extension_names = &device_extensions,
+                .enabled_extension_count = @intCast(device_extensions.len),
+                .p_next = &sync2_feature,
+            };
+
+            const handle = try this.instance.createDevice(this.physical_device, &info, null);
+
+            const wrapper = try allocator.create(vk.DeviceWrapper);
+            errdefer allocator.destroy(wrapper);
+            wrapper.* = vk.DeviceWrapper.load(handle, this.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
+
+            this.device = vk.DeviceProxy.init(handle, wrapper);
+            this.graphics_queue.handle = this.device.getDeviceQueue(this.graphics_queue.family, 0);
+            this.compute_queue.handle = this.device.getDeviceQueue(this.compute_queue.family, 0);
+            this.transfer_queue.handle = this.device.getDeviceQueue(this.transfer_queue.family, 0);
+        }
+        errdefer allocator.destroy(this.device.wrapper);
+        errdefer this.device.destroyDevice(null);
+
         return this;
     }
 
     pub fn destroy(self: *const RenderContext) void {
+        self.device.deviceWaitIdle() catch {};
         log.info("Destroying render context", .{});
+
+        self.device.destroyDevice(null);
+        self.allocator.destroy(self.device.wrapper);
+
         self.instance.destroySurfaceKHR(self.surface, null);
 
         if (self.messenger) |mess| {
