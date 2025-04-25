@@ -31,11 +31,24 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 
 const CONCURRENT_FRAMES: u2 = 2;
 
+const AllocatedImage = struct {
+    image: vk.Image,
+    view: vk.ImageView,
+    format: vk.Format,
+    extent: vk.Extent3D,
+    alloc: c.VmaAllocation,
+};
+
 pub const Engine = struct {
+    // engine stuff
     allocator: std.mem.Allocator,
     window: *glfw.Window = undefined,
     window_resized: bool = false,
     rctx: RenderContext = undefined,
+
+    // rendering stuff
+    draw_image: AllocatedImage = undefined,
+    draw_extent: vk.Extent2D = undefined,
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
@@ -74,14 +87,91 @@ pub const Engine = struct {
         errdefer self.rctx.destroy();
 
         // ===================================================================
-        // [SECTION] Rendering stuff
+        // [SECTION] Draw image creation
         // ===================================================================
+        {
+            const monitor_capabilities = try glfw.getVideoMode(glfw.getPrimaryMonitor().?);
+            const monitor_extent = vk.Extent3D{
+                .depth = 1,
+                .width = @intCast(monitor_capabilities.width),
+                .height = @intCast(monitor_capabilities.height),
+            };
+
+            const format = vk.Format.r32g32b32a32_sfloat;
+
+            const image_info = vk.ImageCreateInfo{
+                .image_type = .@"2d",
+                .format = format,
+                .extent = monitor_extent,
+                .mip_levels = 1,
+                .array_layers = 1,
+                .samples = .{ .@"1_bit" = true },
+                .tiling = .optimal,
+                .usage = .{
+                    .transfer_src_bit = true,
+                    .color_attachment_bit = true,
+                },
+                // MUST manage image ownership manually because we might have dedicated transfer and compute queues
+                .sharing_mode = .exclusive,
+                .initial_layout = .undefined,
+            };
+
+            const alloc_info = c.VmaAllocationCreateInfo{
+                .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
+                .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            };
+
+            var image: vk.Image = undefined;
+            var image_alloc: c.VmaAllocation = undefined;
+            const result = c.vmaCreateImage(self.rctx.vma, @ptrCast(&image_info), &alloc_info, @ptrCast(&image), &image_alloc, null);
+
+            if (result != c.VK_SUCCESS) {
+                return error.FailedToAllocateDrawImage;
+            }
+
+            const view_info = vk.ImageViewCreateInfo{
+                .view_type = .@"2d",
+                .image = image,
+                .format = format,
+                .subresource_range = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                    .level_count = 1,
+                },
+                .components = .{
+                    .r = .identity,
+                    .g = .identity,
+                    .b = .identity,
+                    .a = .identity,
+                },
+            };
+
+            const view = try self.rctx.device.createImageView(&view_info, null);
+
+            self.draw_image = AllocatedImage{
+                .image = image,
+                .alloc = image_alloc,
+                .format = format,
+                .extent = monitor_extent,
+                .view = view,
+            };
+        }
+        errdefer {
+            self.rctx.device.destroyImageView(self.draw_image.view, null);
+            c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.draw_image.image)), self.draw_image.alloc);
+        }
 
         // TODO: show window
     }
 
     pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
+
+        self.rctx.device.destroyImageView(self.draw_image.view, null);
+        c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.draw_image.image)), self.draw_image.alloc);
+
         self.rctx.destroy();
         self.window.destroy();
         glfw.terminate();
