@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("../c.zig").clibs;
+const c = @import("../c.zig").headers;
 const Swapchain = @import("swapchain.zig").Swapchain;
 const vk_utils = @import("utils.zig");
 
@@ -19,6 +19,9 @@ const device_extensions = [_][*:0]const u8{
 
 const log = std.log.scoped(.render_context);
 
+extern fn glfwGetInstanceProcAddress(instance: vk.Instance, procname: [*:0]const u8) vk.PfnVoidFunction;
+extern fn glfwCreateWindowSurface(instance: vk.Instance, window: *const glfw.Window, allocation_callbacks: ?*const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result;
+
 pub const RenderContext = struct {
     allocator: std.mem.Allocator,
     instance: vk.InstanceProxy,
@@ -30,7 +33,7 @@ pub const RenderContext = struct {
     compute_queue: Queue,
     transfer_queue: Queue,
     swapchain: Swapchain,
-    vma: c.vk.VmaAllocator,
+    vma: c.VmaAllocator,
 
     pub const Queue = struct {
         family: u32,
@@ -42,7 +45,7 @@ pub const RenderContext = struct {
         var this: RenderContext = undefined;
         this.allocator = allocator;
 
-        const bw = vk.BaseWrapper.load(c.glfwGetInstanceProcAddress);
+        const bw = vk.BaseWrapper.load(glfwGetInstanceProcAddress);
 
         // ===================================================================
         // [SECTION] Instance
@@ -100,7 +103,7 @@ pub const RenderContext = struct {
             const handle = try bw.createInstance(&create_info, null);
             const wrapper = try allocator.create(vk.InstanceWrapper);
             errdefer allocator.destroy(wrapper);
-            wrapper.* = vk.InstanceWrapper.load(handle, c.glfwGetInstanceProcAddress);
+            wrapper.* = vk.InstanceWrapper.load(handle, glfwGetInstanceProcAddress);
             this.instance = vk.InstanceProxy.init(handle, wrapper);
             errdefer this.instance.destroyInstance(null);
 
@@ -135,7 +138,7 @@ pub const RenderContext = struct {
         // [SECTION] Surface
         // ===================================================================
         log.debug("Creating SurfaceKHR", .{});
-        _ = c.glfwCreateWindowSurface(this.instance.handle, window, null, &this.surface);
+        _ = glfwCreateWindowSurface(this.instance.handle, window, null, &this.surface);
 
         // ===================================================================
         // [SECTION] Physical Device
@@ -343,19 +346,19 @@ pub const RenderContext = struct {
         {
             log.debug("Creating VulkanMemoryAllocator", .{});
 
-            const info = c.vk.VmaAllocatorCreateInfo{
-                .vulkanApiVersion = c.vk.VK_API_VERSION_1_4,
+            const info = c.VmaAllocatorCreateInfo{
+                .vulkanApiVersion = c.VK_API_VERSION_1_4,
                 .instance = @ptrFromInt(@intFromEnum(this.instance.handle)),
                 .physicalDevice = @ptrFromInt(@intFromEnum(this.physical_device)),
                 .device = @ptrFromInt(@intFromEnum(this.device.handle)),
             };
 
-            if (c.vk.vmaCreateAllocator(&info, &this.vma) != c.vk.VK_SUCCESS) {
+            if (c.vmaCreateAllocator(&info, &this.vma) != c.VK_SUCCESS) {
                 std.log.err("Failed to create VulkanMemoryAllocator", .{});
                 return error.VmaAllocatorCreationFailed;
             }
         }
-        errdefer c.vk.vmaDestroyAllocator(this.vma);
+        errdefer c.vmaDestroyAllocator(this.vma);
 
         return this;
     }
@@ -364,7 +367,7 @@ pub const RenderContext = struct {
         self.device.deviceWaitIdle() catch {};
         log.info("Destroying render context", .{});
 
-        c.vk.vmaDestroyAllocator(self.vma);
+        c.vmaDestroyAllocator(self.vma);
 
         self.swapchain.destroy(self.allocator);
 

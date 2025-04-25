@@ -4,11 +4,15 @@ const builtin = @import("builtin");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
 
-const c = @import("c.zig").clibs;
+const c = @import("c.zig").headers;
 const RenderContext = @import("vulkan/context.zig").RenderContext;
+const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
 
 const log = std.log.scoped(.engine);
 
+// ===================================================================
+// [SECTION] GLFW callbacks
+// ===================================================================
 fn onError(_: glfw.ErrorCode, desc: ?[*:0]const u8) callconv(.C) void {
     log.err("GLFW error: {s}", .{desc orelse "missing description"});
 }
@@ -20,6 +24,12 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
     };
     engine.window_resized = true;
 }
+
+// ===================================================================
+// [SECTION] Engine
+// ===================================================================
+
+const CONCURRENT_FRAMES: u2 = 2;
 
 pub const Engine = struct {
     allocator: std.mem.Allocator,
@@ -50,7 +60,7 @@ pub const Engine = struct {
         self.window = try glfw.createWindow(1280, 720, "zEngine", null);
         errdefer self.window.destroy();
 
-        self.window.setSizeLimits(200, 200, c.glfw.GLFW_DONT_CARE, c.glfw.GLFW_DONT_CARE);
+        self.window.setSizeLimits(200, 200, c.GLFW_DONT_CARE, c.GLFW_DONT_CARE);
         self.window.setUserPointer(@ptrCast(self));
         _ = self.window.setFramebufferSizeCallback(onFramebufferResize);
 
@@ -62,6 +72,10 @@ pub const Engine = struct {
             return error.RenderContextCreationFailed;
         };
         errdefer self.rctx.destroy();
+
+        // ===================================================================
+        // [SECTION] Rendering stuff
+        // ===================================================================
 
         // TODO: show window
     }
