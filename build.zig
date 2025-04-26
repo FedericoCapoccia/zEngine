@@ -106,7 +106,6 @@ pub fn build(b: *std.Build) !void {
             ),
             .flags = &.{"-DVMA_IMPLEMENTATION"},
         });
-        b.installArtifact(vma);
         exe.linkLibrary(vma);
     }
 

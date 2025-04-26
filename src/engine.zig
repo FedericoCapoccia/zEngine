@@ -30,6 +30,7 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 // ===================================================================
 
 const CONCURRENT_FRAMES: u2 = 2;
+var current_frame: u2 = 0;
 
 const AllocatedImage = struct {
     image: vk.Image,
@@ -37,6 +38,17 @@ const AllocatedImage = struct {
     format: vk.Format,
     extent: vk.Extent3D,
     alloc: c.VmaAllocation,
+};
+
+const FrameData = struct {
+    graphics_cmd: vk.CommandBuffer,
+    compute_cmd: vk.CommandBuffer,
+    transfer_cmd: vk.CommandBuffer,
+
+    image_acquired: vk.Semaphore,
+    drawing_done: vk.Semaphore,
+    blit_done: vk.Semaphore,
+    rendering_done: vk.Fence,
 };
 
 pub const Engine = struct {
