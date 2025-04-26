@@ -45,10 +45,8 @@ const FrameData = struct {
     compute_pool: vk.CommandPool = .null_handle,
     transfer_pool: vk.CommandPool = .null_handle,
 
-    image_acquired: vk.Semaphore = .null_handle,
-    drawing_done: vk.Semaphore = .null_handle,
-    blit_done: vk.Semaphore = .null_handle,
-    rendering_done: vk.Fence = .null_handle,
+    rendering_done: vk.Semaphore = .null_handle,
+    fence: vk.Fence = .null_handle,
 };
 
 pub const Engine = struct {
@@ -133,7 +131,7 @@ pub const Engine = struct {
                 },
                 // MUST manage image ownership manually because we might have dedicated transfer and compute queues
                 .sharing_mode = .exclusive,
-                .initial_layout = .color_attachment_optimal,
+                .initial_layout = .undefined,
             };
 
             const alloc_info = c.VmaAllocationCreateInfo{
@@ -222,10 +220,8 @@ pub const Engine = struct {
                 const semaphore_info = vk.SemaphoreCreateInfo{};
                 const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
 
-                frame.image_acquired = try self.rctx.device.createSemaphore(&semaphore_info, null);
-                frame.drawing_done = try self.rctx.device.createSemaphore(&semaphore_info, null);
-                frame.blit_done = try self.rctx.device.createSemaphore(&semaphore_info, null);
-                frame.rendering_done = try self.rctx.device.createFence(&fence_info, null);
+                frame.rendering_done = try self.rctx.device.createSemaphore(&semaphore_info, null);
+                frame.fence = try self.rctx.device.createFence(&fence_info, null);
             }
         }
 
@@ -365,4 +361,49 @@ pub const Engine = struct {
     //
     //     device.cmdEndRendering(cmd);
     // }
+
+    // FIXME: these are snippets for undo double gamma correction https://github.com/ocornut/imgui/issues/8271
+    //  and to separate imgui stuff rendering from draw geometry
+
+    // pub fn linearizeColorComponent(srgb: f32) f32 {
+    //         return if (srgb <= 0.04045)
+    //             srgb / 12.92
+    //         else
+    //             std.math.pow(f32, (srgb + 0.055) / 1.055, 2.4);
+    //     }
+    //
+    //     for (0..c.ImGuiCol_COUNT) |idx| {
+    //             const col = &style.*.Colors[idx];
+    //             col.*.x = linearizeColorComponent(col.*.x);
+    //             col.*.y = linearizeColorComponent(col.*.y);
+    //             col.*.z = linearizeColorComponent(col.*.z);
+    //         }
+    //
+    //
+    //
+    //         c.cImGui_ImplVulkan_NewFrame();
+    //         c.cImGui_ImplGlfw_NewFrame();
+    //         c.ImGui_NewFrame();
+    //
+    //         {
+    //             c.ImGui_ShowDemoWindow(null);
+    //             c.ImGui_Text("Hello, world %d", .{123});
+    //             if (c.ImGui_Button("Save")) {
+    //                 std.log.info("Saved", .{});
+    //             }
+    //         }
+    //
+    //         c.ImGui_Render();
+    //
+    //         self.renderer.device.cmdBeginRendering(frame.cmd, &rend_info);
+    //
+    //         const data = c.ImGui_GetDrawData();
+    //         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.cmd)));
+    //
+    //         if (builtin.os.tag == .windows) {
+    //             c.ImGui_UpdatePlatformWindows();
+    //             c.ImGui_RenderPlatformWindowsDefault();
+    //         }
+    //
+    //         self.renderer.device.cmdEndRendering(frame.cmd);
 };

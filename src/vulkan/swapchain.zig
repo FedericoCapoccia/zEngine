@@ -9,6 +9,7 @@ pub const Swapchain = struct {
     format: vk.SurfaceFormatKHR = undefined,
     images: []vk.Image = undefined,
     views: []vk.ImageView = undefined,
+    semaphores: []vk.Semaphore = undefined,
 
     pub const Info = struct {
         instance: *const vk.InstanceProxy,
@@ -22,6 +23,7 @@ pub const Swapchain = struct {
         index: u32,
         view: vk.ImageView,
         format: vk.Format,
+        image_acquired: vk.Semaphore,
     };
 
     pub const Acquired = struct {
@@ -45,9 +47,15 @@ pub const Swapchain = struct {
         // finally after the creation we destroy the old handle
         const old_swapchain: ?vk.SwapchainKHR = if (self.handle != .null_handle) self.handle else null;
         if (old_swapchain) |_| {
+            for (self.semaphores) |sem| {
+                self.device.destroySemaphore(sem, null);
+            }
+
             for (self.views) |view| {
                 self.device.destroyImageView(view, null);
             }
+
+            allocator.free(self.semaphores);
             allocator.free(self.views);
             allocator.free(self.images);
             self.views = undefined;
@@ -116,9 +124,20 @@ pub const Swapchain = struct {
             };
             view.* = try self.device.createImageView(&view_info, null);
         }
+
+        self.semaphores = try allocator.alloc(vk.Semaphore, self.images.len);
+        errdefer allocator.free(self.semaphores);
+
+        for (self.semaphores) |*sem| {
+            sem.* = try self.device.createSemaphore(&.{}, null);
+        }
     }
 
     pub fn destroy(self: *const Swapchain, allocator: std.mem.Allocator) void {
+        for (self.semaphores) |sem| {
+            self.device.destroySemaphore(sem, null);
+        }
+        allocator.free(self.semaphores);
         for (self.views) |view| {
             self.device.destroyImageView(view, null);
         }
@@ -153,6 +172,7 @@ pub const Swapchain = struct {
                 .format = self.format.format,
                 .view = self.views[result.image_index],
                 .handle = self.images[result.image_index],
+                .image_acquired = self.semaphores[result.image_index],
             },
         };
     }
