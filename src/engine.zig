@@ -77,6 +77,12 @@ pub const Engine = struct {
         self.window.setUserPointer(@ptrCast(self));
         _ = self.window.setFramebufferSizeCallback(onFramebufferResize);
 
+        if (builtin.target.os.tag == .windows) {
+            const dark: c.BOOL = c.TRUE;
+            const hwnd = c.glfwGetWin32Window(@ptrCast(self.window));
+            _ = c.DwmSetWindowAttribute(hwnd, 20, &dark, 4);
+        }
+
         // ===================================================================
         // [SECTION] Render Context
         // ===================================================================
@@ -163,8 +169,6 @@ pub const Engine = struct {
             self.rctx.device.destroyImageView(self.draw_image.view, null);
             c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.draw_image.image)), self.draw_image.alloc);
         }
-
-        // TODO: show window
     }
 
     pub fn shutdown(self: *Engine) void {
@@ -180,8 +184,9 @@ pub const Engine = struct {
 
     pub fn run(self: *Engine) !void {
         std.log.info("Running...", .{});
+        self.window.show();
 
-        const enable_loop = false;
+        const enable_loop = true;
         while (!self.window.shouldClose() and enable_loop) {
             glfw.pollEvents();
         }

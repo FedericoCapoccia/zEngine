@@ -114,16 +114,39 @@ pub fn build(b: *std.Build) !void {
     // [SECTION] C module
     // ===================================================================
     {
+        const files = blk: {
+            if (target.result.os.tag == .linux) {
+                break :blk b.addWriteFiles().add("c.h",
+                    \\#define GLFW_INCLUDE_NONE
+                    \\#include <GLFW/glfw3.h>
+                    \\#include <vulkan/vulkan.h>
+                    \\#include <vk_mem_alloc.h>
+                    \\#include <dcimgui.h>
+                    \\#include <dcimgui_impl_glfw.h>
+                    \\#include <dcimgui_impl_vulkan.h>
+                );
+            }
+
+            if (target.result.os.tag == .windows) {
+                break :blk b.addWriteFiles().add("c.h",
+                    \\#define GLFW_INCLUDE_NONE
+                    \\#define GLFW_EXPOSE_NATIVE_WIN32
+                    \\#include <GLFW/glfw3.h>
+                    \\#include <GLFW/glfw3native.h>
+                    \\#include <dwmapi.h>
+                    \\#include <vulkan/vulkan.h>
+                    \\#include <vk_mem_alloc.h>
+                    \\#include <dcimgui.h>
+                    \\#include <dcimgui_impl_glfw.h>
+                    \\#include <dcimgui_impl_vulkan.h>
+                );
+            }
+
+            @panic("OS not supported");
+        };
+
         const c_translate = b.addTranslateC(.{
-            .root_source_file = b.addWriteFiles().add("c.h",
-                \\#define GLFW_INCLUDE_NONE
-                \\#include <GLFW/glfw3.h>
-                \\#include <vulkan/vulkan.h>
-                \\#include <vk_mem_alloc.h>
-                \\#include <dcimgui.h>
-                \\#include <dcimgui_impl_glfw.h>
-                \\#include <dcimgui_impl_vulkan.h>
-            ),
+            .root_source_file = files,
             .target = target,
             .optimize = optimize,
             .link_libc = true,
