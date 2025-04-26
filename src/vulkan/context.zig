@@ -38,6 +38,7 @@ pub const RenderContext = struct {
     pub const Queue = struct {
         family: u32,
         handle: vk.Queue,
+        is_dedicated: bool,
     };
 
     pub fn new(allocator: std.mem.Allocator, window: *glfw.Window) !RenderContext {
@@ -200,50 +201,56 @@ pub const RenderContext = struct {
                     this.graphics_queue = Queue{
                         .family = @intCast(idx),
                         .handle = .null_handle,
+                        .is_dedicated = false,
                     };
                     break;
                 }
             }
 
-            var compute_index: ?u32 = null;
+            var compute: ?u32 = null;
             for (queue_properties, 0..) |qprops, idx| {
                 const flags = qprops.queue_flags;
                 if (!flags.graphics_bit and flags.compute_bit) {
-                    std.log.debug("\tDedicated compute queue found [{d}]", .{idx});
-                    compute_index = @intCast(idx);
+                    std.log.debug("\tAsync compute queue found [{d}]", .{idx});
+                    compute = @intCast(idx);
                     break;
                 }
             }
 
-            if (compute_index == null) {
-                std.log.warn("\tDedicated compute queue not found, falling back to graphics queue", .{});
-                compute_index = this.graphics_queue.family;
+            if (compute == null) {
+                std.log.err("\tYour GPU doesn't support an async compute QueueFamily, report the issue on GitHub", .{});
+                return error.NoAsyncComputeQueueFamily;
             }
 
             this.compute_queue = Queue{
-                .family = @intCast(compute_index.?),
+                .family = compute.?,
                 .handle = .null_handle,
+                .is_dedicated = true,
             };
 
-            var transfer_index: ?u32 = null;
+            var transfer: ?u32 = null;
             for (queue_properties, 0..) |qprops, idx| {
                 const flags = qprops.queue_flags;
                 if (!flags.graphics_bit and !flags.compute_bit and flags.transfer_bit) {
                     std.log.debug("\tDedicated transfer queue found [{d}]", .{idx});
-                    transfer_index = @intCast(idx);
+                    transfer = @intCast(idx);
+                    this.transfer_queue = Queue{
+                        .family = transfer.?,
+                        .handle = .null_handle,
+                        .is_dedicated = true,
+                    };
                     break;
                 }
             }
 
-            if (transfer_index == null) {
-                std.log.warn("\tDedicated transfer queue not found, falling back to compute queue", .{});
-                transfer_index = compute_index;
+            if (transfer == null) {
+                std.log.warn("\tDedicated transfer queue not found, falling back to graphics queue", .{});
+                this.transfer_queue = Queue{
+                    .family = this.graphics_queue.family,
+                    .handle = .null_handle,
+                    .is_dedicated = false,
+                };
             }
-
-            this.transfer_queue = Queue{
-                .family = @intCast(transfer_index.?),
-                .handle = .null_handle,
-            };
 
             log.debug("===================================================", .{});
             log.debug("", .{});
