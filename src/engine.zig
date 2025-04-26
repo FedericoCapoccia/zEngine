@@ -32,6 +32,10 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 const CONCURRENT_FRAMES: u2 = 2;
 var current_frame: u2 = 0;
 
+fn getCurrentFrame(self: *const Engine) *const FrameData {
+    return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % CONCURRENT_FRAMES)]));
+}
+
 const AllocatedImage = struct {
     image: vk.Image,
     view: vk.ImageView,
@@ -41,10 +45,7 @@ const AllocatedImage = struct {
 };
 
 const FrameData = struct {
-    graphics_pool: vk.CommandPool = .null_handle,
-    compute_pool: vk.CommandPool = .null_handle,
-    transfer_pool: vk.CommandPool = .null_handle,
-
+    draw_cmd: vk.CommandBuffer = .null_handle,
     rendering_done: vk.Semaphore = .null_handle,
     fence: vk.Fence = .null_handle,
 };
@@ -59,6 +60,7 @@ pub const Engine = struct {
     // rendering stuff
     draw_image: AllocatedImage = undefined,
     draw_extent: vk.Extent2D = undefined,
+    graphics_pool: vk.CommandPool = .null_handle,
     frames: [CONCURRENT_FRAMES]FrameData = .{FrameData{}} ** CONCURRENT_FRAMES,
 
     pub fn init(self: *Engine) !void {
@@ -186,42 +188,32 @@ pub const Engine = struct {
         // ===================================================================
         {
             log.debug("Initializing Frame Resources", .{});
+
+            self.graphics_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
+                .queue_family_index = self.rctx.graphics_queue.family,
+                .flags = .{ .transient_bit = true, .reset_command_buffer_bit = true },
+            }, null);
+
             for (&self.frames) |*frame| {
-                const graphics = self.rctx.graphics_queue.family;
-                const compute = self.rctx.compute_queue.family;
-                const transfer = self.rctx.transfer_queue.family;
-
-                // If Queues are dedicated create a dedicate pool otherwise utilize the already created ones
-                frame.graphics_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
-                    .queue_family_index = graphics,
-                    .flags = .{ .transient_bit = true, .reset_command_buffer_bit = true },
-                }, null);
-
-                if (graphics == compute) {
-                    frame.compute_pool = frame.graphics_pool;
-                } else {
-                    frame.compute_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
-                        .queue_family_index = compute,
-                        .flags = .{ .transient_bit = true, .reset_command_buffer_bit = true },
-                    }, null);
-                }
-
-                if (transfer == graphics) {
-                    frame.transfer_pool = frame.graphics_pool;
-                } else if (transfer == compute) {
-                    frame.transfer_pool = frame.compute_pool;
-                } else {
-                    frame.transfer_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
-                        .queue_family_index = transfer,
-                        .flags = .{ .transient_bit = true, .reset_command_buffer_bit = true },
-                    }, null);
-                }
-
                 const semaphore_info = vk.SemaphoreCreateInfo{};
                 const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
 
                 frame.rendering_done = try self.rctx.device.createSemaphore(&semaphore_info, null);
                 frame.fence = try self.rctx.device.createFence(&fence_info, null);
+
+                const alloc = vk.CommandBufferAllocateInfo{
+                    .command_buffer_count = 1,
+                    .command_pool = self.graphics_pool,
+                    .level = .primary,
+                };
+                try self.rctx.device.allocateCommandBuffers(&alloc, @ptrCast(&frame.draw_cmd));
+            }
+        }
+        errdefer self.rctx.device.destroyCommandPool(self.graphics_pool, null);
+        errdefer {
+            for (&self.frames) |*frame| {
+                self.rctx.device.destroySemaphore(frame.*.rendering_done, null);
+                self.rctx.device.destroyFence(frame.*.fence, null);
             }
         }
 
@@ -233,6 +225,14 @@ pub const Engine = struct {
 
     pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
+        self.rctx.device.deviceWaitIdle() catch {};
+
+        for (&self.frames) |*frame| {
+            self.rctx.device.destroySemaphore(frame.*.rendering_done, null);
+            self.rctx.device.destroyFence(frame.*.fence, null);
+        }
+
+        self.rctx.device.destroyCommandPool(self.graphics_pool, null);
 
         self.rctx.device.destroyImageView(self.draw_image.view, null);
         c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.draw_image.image)), self.draw_image.alloc);
@@ -246,7 +246,7 @@ pub const Engine = struct {
         std.log.info("Running...", .{});
         self.window.show();
 
-        const enable_loop = true;
+        const enable_loop = false;
         while (!self.window.shouldClose() and enable_loop) {
             glfw.pollEvents();
         }
