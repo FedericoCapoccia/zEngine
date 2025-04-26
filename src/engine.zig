@@ -133,7 +133,7 @@ pub const Engine = struct {
                 },
                 // MUST manage image ownership manually because we might have dedicated transfer and compute queues
                 .sharing_mode = .exclusive,
-                .initial_layout = .undefined,
+                .initial_layout = .color_attachment_optimal,
             };
 
             const alloc_info = c.VmaAllocationCreateInfo{
@@ -255,6 +255,10 @@ pub const Engine = struct {
             glfw.pollEvents();
         }
     }
+    // TODO:
+    //  Swapchain holds an image_acquired semaphore per SwapchainImage and returned on acquireNext()
+    //  Move Commands pool as a Engine resource because I need only 1 of each type per thread, FrameData will hold buffers
+    //  After fence reset, reset frame's command pool
 
     // pub fn draw(self: *Engine) !void {
     //     const idx = self.renderer.startFrame() catch |err| {
