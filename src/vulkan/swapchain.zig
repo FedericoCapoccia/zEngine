@@ -163,7 +163,7 @@ fn choosePresentMode(info: Swapchain.Info, allocator: std.mem.Allocator) !vk.Pre
     const modes = try info.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(info.physical_device, info.surface, allocator);
     defer allocator.free(modes);
     for (modes) |mode| {
-        if (mode == .fifo_relaxed_khr) {
+        if (mode == .mailbox_khr) {
             return mode;
         }
     }

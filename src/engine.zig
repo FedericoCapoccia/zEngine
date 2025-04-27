@@ -620,9 +620,9 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(frame.draw_cmd, &info);
         }
 
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
+        // c.cImGui_ImplVulkan_NewFrame();
+        // c.cImGui_ImplGlfw_NewFrame();
+        // c.ImGui_NewFrame();
 
         const color_attachment = vk.RenderingAttachmentInfo{
             .image_view = self.draw_image.view,
@@ -675,21 +675,21 @@ pub const Engine = struct {
 
         { // Draw ImGui stuff
 
-            c.ImGui_ShowDemoWindow(null);
-            c.ImGui_Text("Frame time %f", @as(f64, frame_time * 1000));
-            if (c.ImGui_Button("Save")) {
-                std.log.info("Saved", .{});
-            }
-
-            c.ImGui_Render();
-
-            const data = c.ImGui_GetDrawData();
-            c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
-
-            if (builtin.os.tag == .windows) {
-                c.ImGui_UpdatePlatformWindows();
-                c.ImGui_RenderPlatformWindowsDefault();
-            }
+            // c.ImGui_ShowDemoWindow(null);
+            // c.ImGui_Text("Frame time %f", @as(f64, frame_time * 1000));
+            // if (c.ImGui_Button("Save")) {
+            //     std.log.info("Saved", .{});
+            // }
+            //
+            // c.ImGui_Render();
+            //
+            // const data = c.ImGui_GetDrawData();
+            // c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
+            //
+            // if (builtin.os.tag == .windows) {
+            //     c.ImGui_UpdatePlatformWindows();
+            //     c.ImGui_RenderPlatformWindowsDefault();
+            // }
         }
 
         device.cmdEndRendering(frame.draw_cmd);
