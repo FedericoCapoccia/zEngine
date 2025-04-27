@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
+const vk_utils = @import("vulkan/utils.zig");
 
 const c = @import("c");
 const RenderContext = @import("vulkan/context.zig").RenderContext;
@@ -62,6 +63,8 @@ pub const Engine = struct {
     draw_extent: vk.Extent2D = undefined,
     graphics_pool: vk.CommandPool = .null_handle,
     frames: [CONCURRENT_FRAMES]FrameData = .{FrameData{}} ** CONCURRENT_FRAMES,
+    pipeline: vk.Pipeline = .null_handle,
+    pipeline_layout: vk.PipelineLayout = .null_handle,
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
@@ -220,12 +223,175 @@ pub const Engine = struct {
         // ===================================================================
         // [SECTION] Pipeline Creation
         // ===================================================================
-        {}
+        {
+            // ===================================================================
+            // [SECTION] Shaders Module Creation
+            // ===================================================================
+            // FIXME: add compilation as compiler step
+            const vertex_code align(4) = @embedFile("resources/shaders/triangle.vert.spv").*;
+            const fragment_code align(4) = @embedFile("resources/shaders/triangle.frag.spv").*;
+            const vert_mod = try vk_utils.createShaderModule(self.rctx.device, &vertex_code);
+            const frag_mod = try vk_utils.createShaderModule(self.rctx.device, &fragment_code);
+            defer self.rctx.device.destroyShaderModule(vert_mod, null);
+            defer self.rctx.device.destroyShaderModule(frag_mod, null);
+
+            // ===================================================================
+            // [SECTION] Pipeline Layout
+            // ===================================================================
+            const layout_create_info = vk.PipelineLayoutCreateInfo{
+                .set_layout_count = 0,
+                .p_set_layouts = null,
+                .push_constant_range_count = 0,
+                .p_push_constant_ranges = null,
+            };
+            self.pipeline_layout = try self.rctx.device.createPipelineLayout(&layout_create_info, null);
+
+            // ===================================================================
+            // [SECTION] Pipeline
+            // ===================================================================
+
+            // Disabling color blending
+            const color_blend_attch = vk.PipelineColorBlendAttachmentState{
+                .blend_enable = vk.FALSE,
+                .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
+                .dst_alpha_blend_factor = .zero,
+                .src_alpha_blend_factor = .zero,
+                .dst_color_blend_factor = .zero,
+                .src_color_blend_factor = .zero,
+                .color_blend_op = .add,
+                .alpha_blend_op = .add,
+            };
+
+            const shader_stages: [2]vk.PipelineShaderStageCreateInfo = .{
+                vk.PipelineShaderStageCreateInfo{
+                    .module = vert_mod,
+                    .stage = .{ .vertex_bit = true },
+                    .p_name = "main",
+                },
+                vk.PipelineShaderStageCreateInfo{
+                    .module = frag_mod,
+                    .stage = .{ .fragment_bit = true },
+                    .p_name = "main",
+                },
+            };
+
+            const input_assembly = vk.PipelineInputAssemblyStateCreateInfo{
+                .topology = .triangle_list,
+                .primitive_restart_enable = vk.FALSE,
+            };
+
+            const rasterizer = vk.PipelineRasterizationStateCreateInfo{
+                .polygon_mode = .fill,
+                .line_width = 1.0,
+                .cull_mode = .{ .back_bit = true },
+                .front_face = .clockwise,
+                .depth_clamp_enable = vk.FALSE,
+                .rasterizer_discard_enable = vk.FALSE,
+                .depth_bias_clamp = 0.0,
+                .depth_bias_constant_factor = 0.0,
+                .depth_bias_enable = vk.FALSE,
+                .depth_bias_slope_factor = 0.0,
+            };
+
+            // disable multisampling
+            const multisampling = vk.PipelineMultisampleStateCreateInfo{
+                .sample_shading_enable = vk.FALSE,
+                .rasterization_samples = .{ .@"1_bit" = true },
+                .min_sample_shading = 1.0,
+                .p_sample_mask = null,
+                .alpha_to_coverage_enable = vk.FALSE,
+                .alpha_to_one_enable = vk.FALSE,
+            };
+
+            // disable depth test
+            const depth_stencil = vk.PipelineDepthStencilStateCreateInfo{
+                .depth_test_enable = vk.FALSE,
+                .depth_write_enable = vk.FALSE,
+                .depth_compare_op = .never,
+                .depth_bounds_test_enable = vk.FALSE,
+                .stencil_test_enable = vk.FALSE,
+                .min_depth_bounds = 0.0,
+                .max_depth_bounds = 1.0,
+                .front = .{
+                    .write_mask = 0,
+                    .depth_fail_op = .zero,
+                    .compare_mask = 0,
+                    .compare_op = .never,
+                    .fail_op = .zero,
+                    .pass_op = .zero,
+                    .reference = 0,
+                },
+                .back = .{
+                    .write_mask = 0,
+                    .depth_fail_op = .zero,
+                    .compare_mask = 0,
+                    .compare_op = .never,
+                    .fail_op = .zero,
+                    .pass_op = .zero,
+                    .reference = 0,
+                },
+            };
+
+            const render_info = vk.PipelineRenderingCreateInfo{
+                .color_attachment_count = 1,
+                .p_color_attachment_formats = @ptrCast(&self.draw_image.format),
+                .depth_attachment_format = .undefined,
+                .stencil_attachment_format = .undefined,
+                .view_mask = 0,
+            };
+
+            const viewport_state = vk.PipelineViewportStateCreateInfo{
+                .viewport_count = 1,
+                .scissor_count = 1,
+            };
+
+            const color_blend_info = vk.PipelineColorBlendStateCreateInfo{
+                .logic_op_enable = vk.FALSE,
+                .logic_op = .copy,
+                .attachment_count = 1,
+                .p_attachments = @ptrCast(&color_blend_attch),
+                .blend_constants = .{ 0, 0, 0, 0 },
+            };
+
+            const vertex_input_info = vk.PipelineVertexInputStateCreateInfo{};
+
+            const states: [2]vk.DynamicState = .{
+                .viewport,
+                .scissor,
+            };
+
+            const dynamic_info = vk.PipelineDynamicStateCreateInfo{
+                .dynamic_state_count = 2,
+                .p_dynamic_states = @ptrCast(&states),
+            };
+
+            const pipeline_info = vk.GraphicsPipelineCreateInfo{
+                .stage_count = 2,
+                .p_stages = @ptrCast(&shader_stages),
+                .p_vertex_input_state = &vertex_input_info,
+                .p_input_assembly_state = &input_assembly,
+                .p_viewport_state = &viewport_state,
+                .p_rasterization_state = &rasterizer,
+                .p_multisample_state = &multisampling,
+                .p_color_blend_state = &color_blend_info,
+                .p_depth_stencil_state = &depth_stencil,
+                .p_dynamic_state = &dynamic_info,
+                .layout = self.pipeline_layout,
+                .p_next = &render_info,
+                .subpass = 0,
+                .base_pipeline_index = 0,
+            };
+
+            _ = try self.rctx.device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&self.pipeline));
+        }
     }
 
     pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
         self.rctx.device.deviceWaitIdle() catch {};
+
+        self.rctx.device.destroyPipelineLayout(self.pipeline_layout, null);
+        self.rctx.device.destroyPipeline(self.pipeline, null);
 
         for (&self.frames) |*frame| {
             self.rctx.device.destroySemaphore(frame.*.rendering_done, null);

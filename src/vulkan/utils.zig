@@ -5,6 +5,20 @@ const vk = @import("vulkan");
 const log = std.log.scoped(.vk_utils);
 
 // ===================================================================
+// [SECTION] Utils
+// ===================================================================
+pub fn createShaderModule(device: vk.DeviceProxy, code: []const u8) !vk.ShaderModule {
+    std.debug.assert(code.len % 4 == 0); // check for alignment
+
+    const create_info = vk.ShaderModuleCreateInfo{
+        .code_size = code.len,
+        .p_code = @alignCast(@ptrCast(code.ptr)),
+    };
+
+    return device.createShaderModule(&create_info, null);
+}
+
+// ===================================================================
 // [SECTION] Logging
 // ===================================================================
 pub fn logSupportedLayers(layers: []vk.LayerProperties) void {
