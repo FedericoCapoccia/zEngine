@@ -31,6 +31,7 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 // ===================================================================
 
 const CONCURRENT_FRAMES: u2 = 2;
+var frame_time: f64 = 0;
 
 const AllocatedImage = struct {
     image: vk.Image,
@@ -532,10 +533,11 @@ pub const Engine = struct {
 
         const enable_loop = true;
         while (!self.window.shouldClose() and enable_loop) {
-            glfw.pollEvents();
             self.draw() catch |err| {
                 log.warn("Failed to draw frame: {s}", .{@errorName(err)});
             };
+
+            glfw.pollEvents();
         }
     }
 
@@ -622,16 +624,6 @@ pub const Engine = struct {
         c.cImGui_ImplGlfw_NewFrame();
         c.ImGui_NewFrame();
 
-        {
-            c.ImGui_ShowDemoWindow(null);
-            c.ImGui_Text("Hello, world %d", .{123});
-            if (c.ImGui_Button("Save")) {
-                std.log.info("Saved", .{});
-            }
-        }
-
-        c.ImGui_Render();
-
         const color_attachment = vk.RenderingAttachmentInfo{
             .image_view = self.draw_image.view,
             .image_layout = .color_attachment_optimal,
@@ -682,6 +674,14 @@ pub const Engine = struct {
         }
 
         { // Draw ImGui stuff
+
+            c.ImGui_ShowDemoWindow(null);
+            c.ImGui_Text("Frame time %f", @as(f64, frame_time * 1000));
+            if (c.ImGui_Button("Save")) {
+                std.log.info("Saved", .{});
+            }
+
+            c.ImGui_Render();
 
             const data = c.ImGui_GetDrawData();
             c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
