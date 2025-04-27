@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const vk = @import("vulkan");
 
@@ -163,7 +164,10 @@ fn choosePresentMode(info: Swapchain.Info, allocator: std.mem.Allocator) !vk.Pre
     const modes = try info.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(info.physical_device, info.surface, allocator);
     defer allocator.free(modes);
     for (modes) |mode| {
-        if (mode == .mailbox_khr) {
+        if (builtin.target.os.tag == .windows and mode == .fifo_relaxed_khr) {
+            return mode;
+        }
+        if (builtin.target.os.tag == .linux and mode == .mailbox_khr) {
             return mode;
         }
     }

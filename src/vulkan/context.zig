@@ -256,6 +256,13 @@ pub const RenderContext = struct {
             log.debug("", .{});
         }
 
+        const modes = try this.instance.getPhysicalDeviceSurfacePresentModesAllocKHR(this.physical_device, this.surface, allocator);
+        defer allocator.free(modes);
+        log.debug("Available present modes:", .{});
+        for (modes) |mode| {
+            log.debug("\t{d}", .{mode});
+        }
+
         // ===================================================================
         // [SECTION] Logical Device
         // ===================================================================
