@@ -614,9 +614,9 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(frame.draw_cmd, &info);
         }
 
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
+        //c.cImGui_ImplVulkan_NewFrame();
+        //c.cImGui_ImplGlfw_NewFrame();
+        //c.ImGui_NewFrame();
 
         const color_attachment = vk.RenderingAttachmentInfo{
             .image_view = self.draw_image.view,
@@ -669,15 +669,15 @@ pub const Engine = struct {
 
         { // Draw ImGui stuff
 
-            c.ImGui_ShowDemoWindow(null);
-            if (c.ImGui_Button("Save")) {
-                std.log.info("Saved", .{});
-            }
+            //c.ImGui_ShowDemoWindow(null);
+            //if (c.ImGui_Button("Save")) {
+            //    std.log.info("Saved", .{});
+            //}
 
-            c.ImGui_Render();
+            //c.ImGui_Render();
 
-            const data = c.ImGui_GetDrawData();
-            c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
+            //const data = c.ImGui_GetDrawData();
+            //c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
         }
 
         device.cmdEndRendering(frame.draw_cmd);

@@ -78,6 +78,7 @@ pub const RenderContext = struct {
             if (enable_validation) {
                 try required_extensions.append(vk.extensions.ext_debug_utils.name);
                 try required_layers.append("VK_LAYER_KHRONOS_validation");
+                try required_layers.append("VK_LAYER_LUNARG_monitor");
             }
 
             const glfw_extensions = try glfw.getRequiredInstanceExtensions();
