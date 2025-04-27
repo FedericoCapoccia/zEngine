@@ -74,6 +74,10 @@ pub fn build(b: *std.Build) !void {
                 "thirdparty/imgui/imgui_demo.cpp",
                 "thirdparty/imgui/imgui_impl_glfw.cpp",
                 "thirdparty/imgui/imgui_impl_vulkan.cpp",
+                "thirdparty/imgui/dcimgui.cpp",
+                "thirdparty/imgui/dcimgui_internal.cpp",
+                "thirdparty/imgui/dcimgui_impl_glfw.cpp",
+                "thirdparty/imgui/dcimgui_impl_vulkan.cpp",
             },
             .flags = &.{"-DGLFW_INCLUDE_NONE"},
         });

@@ -31,11 +31,6 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 // ===================================================================
 
 const CONCURRENT_FRAMES: u2 = 2;
-var current_frame: u2 = 0;
-
-fn getCurrentFrame(self: *const Engine) *const FrameData {
-    return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % CONCURRENT_FRAMES)]));
-}
 
 const AllocatedImage = struct {
     image: vk.Image,
@@ -43,10 +38,12 @@ const AllocatedImage = struct {
     format: vk.Format,
     extent: vk.Extent3D,
     alloc: c.VmaAllocation,
+    last_layout: vk.ImageLayout,
 };
 
 const FrameData = struct {
     draw_cmd: vk.CommandBuffer = .null_handle,
+    image_acquired: vk.Semaphore = .null_handle,
     rendering_done: vk.Semaphore = .null_handle,
     fence: vk.Fence = .null_handle,
 };
@@ -63,8 +60,16 @@ pub const Engine = struct {
     draw_extent: vk.Extent2D = undefined,
     graphics_pool: vk.CommandPool = .null_handle,
     frames: [CONCURRENT_FRAMES]FrameData = .{FrameData{}} ** CONCURRENT_FRAMES,
+    current_frame: u2 = 0,
     pipeline: vk.Pipeline = .null_handle,
     pipeline_layout: vk.PipelineLayout = .null_handle,
+
+    imgui_pool: vk.DescriptorPool = .null_handle,
+    imgui_ctx: *c.ImGuiContext = undefined,
+
+    fn getCurrentFrame(self: *const Engine) *const FrameData {
+        return @ptrCast(@constCast(&self.frames[@intCast(self.current_frame % CONCURRENT_FRAMES)]));
+    }
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
@@ -179,6 +184,12 @@ pub const Engine = struct {
                 .format = format,
                 .extent = monitor_extent,
                 .view = view,
+                .last_layout = .undefined,
+            };
+
+            self.draw_extent = vk.Extent2D{
+                .width = self.draw_image.extent.width,
+                .height = self.draw_image.extent.height,
             };
         }
         errdefer {
@@ -201,6 +212,7 @@ pub const Engine = struct {
                 const semaphore_info = vk.SemaphoreCreateInfo{};
                 const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
 
+                frame.image_acquired = try self.rctx.device.createSemaphore(&semaphore_info, null);
                 frame.rendering_done = try self.rctx.device.createSemaphore(&semaphore_info, null);
                 frame.fence = try self.rctx.device.createFence(&fence_info, null);
 
@@ -384,16 +396,122 @@ pub const Engine = struct {
 
             _ = try self.rctx.device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&self.pipeline));
         }
+
+        // ===================================================================
+        // [SECTION] ImGui setup
+        // ===================================================================
+        {
+            const pool_sizes = [_]vk.DescriptorPoolSize{
+                vk.DescriptorPoolSize{ .type = .sampler, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .combined_image_sampler, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .sampled_image, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .storage_image, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .uniform_texel_buffer, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .storage_texel_buffer, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .uniform_buffer, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .storage_buffer, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .uniform_buffer_dynamic, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .storage_buffer_dynamic, .descriptor_count = 1000 },
+                vk.DescriptorPoolSize{ .type = .input_attachment, .descriptor_count = 1000 },
+            };
+
+            const pool_create_info = vk.DescriptorPoolCreateInfo{
+                .flags = .{ .free_descriptor_set_bit = true },
+                .max_sets = 1000,
+                .pool_size_count = @intCast(pool_sizes.len),
+                .p_pool_sizes = @ptrCast(&pool_sizes[0]),
+            };
+
+            self.imgui_pool = try self.rctx.device.createDescriptorPool(&pool_create_info, null);
+            self.imgui_ctx = c.ImGui_CreateContext(null).?;
+
+            const io = c.ImGui_GetIO();
+            io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
+            io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
+
+            if (builtin.os.tag == .windows) {
+                io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
+                io.*.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
+            }
+
+            var font_cfg = c.ImFontConfig{
+                .FontDataOwnedByAtlas = false,
+                .GlyphMaxAdvanceX = std.math.floatMax(f32),
+                .RasterizerMultiply = 1.0,
+                .RasterizerDensity = 1.0,
+                .OversampleH = 2,
+                .OversampleV = 2,
+            };
+
+            const font = @embedFile("resources/jetbrainsmono.ttf");
+
+            _ = c.ImFontAtlas_AddFontFromMemoryTTF(
+                io.*.Fonts,
+                @constCast(font),
+                font.len,
+                20.0,
+                &font_cfg,
+                null,
+            );
+
+            const scale_x, const scale_y = self.window.getContentScale();
+
+            const style = c.ImGui_GetStyle();
+            c.ImGui_StyleColorsDark(style);
+            c.ImGuiStyle_ScaleAllSizes(style, @max(scale_x, scale_y));
+
+            style.*.WindowRounding = 0.0;
+            style.*.Colors[c.ImGuiCol_WindowBg].w = 1.0;
+
+            for (0..c.ImGuiCol_COUNT) |idx| {
+                const col = &style.*.Colors[idx];
+                col.*.x = vk_utils.linearizeColorComponent(col.*.x);
+                col.*.y = vk_utils.linearizeColorComponent(col.*.y);
+                col.*.z = vk_utils.linearizeColorComponent(col.*.z);
+            }
+
+            _ = c.cImGui_ImplGlfw_InitForVulkan(@ptrCast(self.window), true);
+
+            const imgui_pipeline_info = c.VkPipelineRenderingCreateInfo{
+                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+                .pNext = null,
+                .colorAttachmentCount = 1,
+                .pColorAttachmentFormats = @ptrCast(&self.draw_image.format),
+            };
+
+            const imgui_init_info = c.ImGui_ImplVulkan_InitInfo{
+                .Instance = @ptrFromInt(@intFromEnum(self.rctx.instance.handle)),
+                .PhysicalDevice = @ptrFromInt(@intFromEnum(self.rctx.physical_device)),
+                .Device = @ptrFromInt(@intFromEnum(self.rctx.device.handle)),
+                .QueueFamily = self.rctx.graphics_queue.family,
+                .Queue = @ptrFromInt(@intFromEnum(self.rctx.graphics_queue.handle)),
+                .DescriptorPool = @ptrFromInt(@intFromEnum(self.imgui_pool)),
+                .MinImageCount = CONCURRENT_FRAMES,
+                .ImageCount = CONCURRENT_FRAMES,
+                .MSAASamples = c.VK_SAMPLE_COUNT_1_BIT,
+                .UseDynamicRendering = true,
+                .PipelineRenderingCreateInfo = imgui_pipeline_info,
+            };
+
+            _ = c.cImGui_ImplVulkan_Init(@ptrCast(@constCast(&imgui_init_info)));
+            _ = c.cImGui_ImplVulkan_CreateFontsTexture();
+        }
     }
 
     pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
         self.rctx.device.deviceWaitIdle() catch {};
 
+        c.cImGui_ImplVulkan_Shutdown();
+        self.rctx.device.destroyDescriptorPool(self.imgui_pool, null);
+        c.cImGui_ImplGlfw_Shutdown();
+        c.ImGui_DestroyContext(self.imgui_ctx);
+
         self.rctx.device.destroyPipelineLayout(self.pipeline_layout, null);
         self.rctx.device.destroyPipeline(self.pipeline, null);
 
         for (&self.frames) |*frame| {
+            self.rctx.device.destroySemaphore(frame.*.image_acquired, null);
             self.rctx.device.destroySemaphore(frame.*.rendering_done, null);
             self.rctx.device.destroyFence(frame.*.fence, null);
         }
@@ -412,164 +530,364 @@ pub const Engine = struct {
         std.log.info("Running...", .{});
         self.window.show();
 
-        const enable_loop = false;
+        const enable_loop = true;
         while (!self.window.shouldClose() and enable_loop) {
             glfw.pollEvents();
+            self.draw() catch |err| {
+                log.warn("Failed to draw frame: {s}", .{@errorName(err)});
+            };
         }
     }
-    // TODO:
-    //  Swapchain holds an image_acquired semaphore per SwapchainImage and returned on acquireNext()
-    //  Move Commands pool as a Engine resource because I need only 1 of each type per thread, FrameData will hold buffers
-    //  After fence reset, reset frame's command pool
 
-    // pub fn draw(self: *Engine) !void {
-    //     const idx = self.renderer.startFrame() catch |err| {
-    //         if (err == error.OutOfDateKHR) {
-    //             return;
-    //         }
-    //
-    //         return error.FailedToDraw;
-    //     };
-    //
-    //     {
-    //         c.ImGui_ShowDemoWindow(null);
-    //         c.ImGui_Text("Hello, world %d", .{123});
-    //         if (c.ImGui_Button("Save")) {
-    //             std.log.info("Saved", .{});
-    //         }
-    //     }
-    //
-    //     c.ImGui_Render();
-    //
-    //     const device = self.renderer.device;
-    //     const draw_image: *core.image.AllocatedImage = &self.renderer.draw_image;
-    //     const draw_extent = self.renderer.draw_extent;
-    //     const qfamilies = self.renderer.qfamilies;
-    //
-    //     const frame = self.renderer.getCurrentFrame();
-    //     const swapchain_image = self.renderer.swapchain.images[idx];
-    //
-    //     utils.transitionImage(device, frame, draw_image.image, .undefined, .color_attachment_optimal, qfamilies.graphics);
-    //
-    //     draw_geometry(frame.cmd, device, draw_image.view, draw_extent, self.renderer.triangle_pipeline);
-    //
-    //     utils.transitionImage(device, frame, draw_image.image, .color_attachment_optimal, .transfer_src_optimal, qfamilies.graphics);
-    //     utils.transitionImage(device, frame, swapchain_image, .undefined, .transfer_dst_optimal, qfamilies.graphics);
-    //
-    //     utils.copy_image(device, frame.cmd, draw_image.image, swapchain_image, draw_extent, self.renderer.swapchain.extent);
-    //
-    //     utils.transitionImage(device, frame, swapchain_image, .transfer_dst_optimal, .present_src_khr, qfamilies.graphics);
-    //
-    //     try self.renderer.endFrame(idx);
-    // }
-    //
-    // fn draw_geometry(
-    //     cmd: vk.CommandBuffer,
-    //     device: vk.DeviceProxy,
-    //     view: vk.ImageView,
-    //     extent: vk.Extent2D,
-    //     pipeline: vk.Pipeline,
-    // ) void {
-    //     const color_attachment = vk.RenderingAttachmentInfo{
-    //         .image_view = view,
-    //         .image_layout = .color_attachment_optimal,
-    //         .load_op = .clear,
-    //         .store_op = .store,
-    //         .resolve_mode = .{},
-    //         .resolve_image_layout = .undefined,
-    //         .resolve_image_view = .null_handle,
-    //         .clear_value = vk.ClearValue{
-    //             .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
-    //         },
-    //     };
-    //
-    //     const rend_info = vk.RenderingInfo{
-    //         .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
-    //         .layer_count = 1,
-    //         .color_attachment_count = 1,
-    //         .p_color_attachments = @ptrCast(&color_attachment),
-    //         .p_depth_attachment = null,
-    //         .p_stencil_attachment = null,
-    //         .view_mask = 0,
-    //     };
-    //
-    //     device.cmdBeginRendering(cmd, &rend_info);
-    //
-    //     device.cmdBindPipeline(cmd, .graphics, pipeline);
-    //
-    //     const viewport = vk.Viewport{
-    //         .x = 0,
-    //         .y = 0,
-    //         .width = @floatFromInt(extent.width),
-    //         .height = @floatFromInt(extent.height),
-    //         .min_depth = 0.0,
-    //         .max_depth = 1.0,
-    //     };
-    //
-    //     device.cmdSetViewport(cmd, 0, 1, @ptrCast(&viewport));
-    //
-    //     const scissor = vk.Rect2D{
-    //         .offset = .{ .x = 0, .y = 0 },
-    //         .extent = .{ .width = extent.width, .height = extent.height },
-    //     };
-    //
-    //     device.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
-    //
-    //     device.cmdDraw(cmd, 3, 1, 0, 0);
-    //
-    //     const data = c.ImGui_GetDrawData();
-    //     c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
-    //
-    //     if (builtin.os.tag == .windows) {
-    //         c.ImGui_UpdatePlatformWindows();
-    //         c.ImGui_RenderPlatformWindowsDefault();
-    //     }
-    //
-    //     device.cmdEndRendering(cmd);
-    // }
+    fn resize(self: *Engine) !void {
+        self.rctx.device.deviceWaitIdle() catch {};
+        var width, var height = self.window.getFramebufferSize();
+        while (width == 0 or height == 0) {
+            glfw.waitEvents();
+            width, height = self.window.getFramebufferSize();
+        }
 
-    // FIXME: these are snippets for undo double gamma correction https://github.com/ocornut/imgui/issues/8271
-    //  and to separate imgui stuff rendering from draw geometry
+        const info = Swapchain.Info{
+            .instance = &self.rctx.instance,
+            .surface = self.rctx.surface,
+            .physical_device = self.rctx.physical_device,
+            .extent = vk.Extent2D{ .width = @intCast(width), .height = @intCast(height) },
+        };
 
-    // pub fn linearizeColorComponent(srgb: f32) f32 {
-    //         return if (srgb <= 0.04045)
-    //             srgb / 12.92
-    //         else
-    //             std.math.pow(f32, (srgb + 0.055) / 1.055, 2.4);
-    //     }
-    //
-    //     for (0..c.ImGuiCol_COUNT) |idx| {
-    //             const col = &style.*.Colors[idx];
-    //             col.*.x = linearizeColorComponent(col.*.x);
-    //             col.*.y = linearizeColorComponent(col.*.y);
-    //             col.*.z = linearizeColorComponent(col.*.z);
-    //         }
-    //
-    //
-    //
-    //         c.cImGui_ImplVulkan_NewFrame();
-    //         c.cImGui_ImplGlfw_NewFrame();
-    //         c.ImGui_NewFrame();
-    //
-    //         {
-    //             c.ImGui_ShowDemoWindow(null);
-    //             c.ImGui_Text("Hello, world %d", .{123});
-    //             if (c.ImGui_Button("Save")) {
-    //                 std.log.info("Saved", .{});
-    //             }
-    //         }
-    //
-    //         c.ImGui_Render();
-    //
-    //         self.renderer.device.cmdBeginRendering(frame.cmd, &rend_info);
-    //
-    //         const data = c.ImGui_GetDrawData();
-    //         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.cmd)));
-    //
-    //         if (builtin.os.tag == .windows) {
-    //             c.ImGui_UpdatePlatformWindows();
-    //             c.ImGui_RenderPlatformWindowsDefault();
-    //         }
-    //
-    //         self.renderer.device.cmdEndRendering(frame.cmd);
+        try self.rctx.swapchain.createOrResize(info, self.allocator);
+        self.window_resized = false;
+    }
+
+    fn draw(self: *Engine) !void {
+        self.draw_extent.width = @min(self.rctx.swapchain.extent.width, self.draw_image.extent.width);
+        self.draw_extent.height = @min(self.rctx.swapchain.extent.height, self.draw_image.extent.height);
+
+        const frame = self.getCurrentFrame();
+        const device: *const vk.DeviceProxy = &self.rctx.device;
+        const swapchain: *Swapchain = &self.rctx.swapchain;
+
+        _ = try device.waitForFences(1, @ptrCast(&frame.fence), vk.TRUE, std.math.maxInt(u64));
+
+        const acquired = try swapchain.acquireNext(frame.image_acquired, .null_handle);
+
+        if (acquired.result == .out_of_date) {
+            try self.resize();
+            return;
+        }
+
+        switch (acquired.result) {
+            Swapchain.Acquired.Result.suboptimal => self.window_resized = true,
+            Swapchain.Acquired.Result.timeout => log.warn("vkAcquireNextImageKHR timeout", .{}),
+            Swapchain.Acquired.Result.not_ready => log.warn("vkAcquireNextImageKHR not ready", .{}),
+            Swapchain.Acquired.Result.success => {},
+            else => unreachable,
+        }
+
+        try device.resetFences(1, @ptrCast(&frame.fence));
+
+        try device.resetCommandBuffer(frame.draw_cmd, .{});
+
+        const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
+        try device.beginCommandBuffer(frame.draw_cmd, &begin_info);
+
+        { // undefined to color attachment
+            const barrier = vk.ImageMemoryBarrier2{
+                .image = self.draw_image.image,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .old_layout = self.draw_image.last_layout,
+                .new_layout = .color_attachment_optimal,
+                .src_stage_mask = .{}, // NONE
+                .src_access_mask = .{}, // NONE
+                .dst_stage_mask = .{ .color_attachment_output_bit = true },
+                .dst_access_mask = .{ .color_attachment_write_bit = true },
+
+                .subresource_range = vk.ImageSubresourceRange{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = 0,
+                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
+                },
+            };
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 1,
+                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+            };
+            device.cmdPipelineBarrier2(frame.draw_cmd, &info);
+        }
+
+        c.cImGui_ImplVulkan_NewFrame();
+        c.cImGui_ImplGlfw_NewFrame();
+        c.ImGui_NewFrame();
+
+        {
+            c.ImGui_ShowDemoWindow(null);
+            c.ImGui_Text("Hello, world %d", .{123});
+            if (c.ImGui_Button("Save")) {
+                std.log.info("Saved", .{});
+            }
+        }
+
+        c.ImGui_Render();
+
+        const color_attachment = vk.RenderingAttachmentInfo{
+            .image_view = self.draw_image.view,
+            .image_layout = .color_attachment_optimal,
+            .load_op = .clear,
+            .store_op = .store, // TODO: check what happens if it's .dont_care
+            .resolve_mode = .{},
+            .resolve_image_layout = .undefined,
+            .resolve_image_view = .null_handle,
+            .clear_value = vk.ClearValue{
+                .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
+            },
+        };
+
+        const rend_info = vk.RenderingInfo{
+            .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = self.draw_extent },
+            .layer_count = 1,
+            .color_attachment_count = 1,
+            .p_color_attachments = @ptrCast(&color_attachment),
+            .p_depth_attachment = null,
+            .p_stencil_attachment = null,
+            .view_mask = 0,
+        };
+
+        device.cmdBeginRendering(frame.draw_cmd, &rend_info);
+
+        { // draw geometry
+
+            device.cmdBindPipeline(frame.draw_cmd, .graphics, self.pipeline);
+            const viewport = vk.Viewport{
+                .x = 0,
+                .y = 0,
+                .width = @floatFromInt(self.draw_extent.width),
+                .height = @floatFromInt(self.draw_extent.height),
+                .min_depth = 0.0,
+                .max_depth = 1.0,
+            };
+
+            device.cmdSetViewport(frame.draw_cmd, 0, 1, @ptrCast(&viewport));
+
+            const scissor = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = .{ .width = self.draw_extent.width, .height = self.draw_extent.height },
+            };
+
+            device.cmdSetScissor(frame.draw_cmd, 0, 1, @ptrCast(&scissor));
+
+            device.cmdDraw(frame.draw_cmd, 3, 1, 0, 0);
+        }
+
+        { // Draw ImGui stuff
+
+            const data = c.ImGui_GetDrawData();
+            c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
+
+            if (builtin.os.tag == .windows) {
+                c.ImGui_UpdatePlatformWindows();
+                c.ImGui_RenderPlatformWindowsDefault();
+            }
+        }
+
+        device.cmdEndRendering(frame.draw_cmd);
+
+        { // color attachment to transfer_src for blit
+            const barrier = vk.ImageMemoryBarrier2{
+                .image = self.draw_image.image,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .old_layout = .color_attachment_optimal,
+                .new_layout = .transfer_src_optimal,
+                .src_stage_mask = .{ .color_attachment_output_bit = true },
+                .src_access_mask = .{ .color_attachment_write_bit = true },
+                .dst_stage_mask = .{ .blit_bit = true },
+                .dst_access_mask = .{ .transfer_read_bit = true }, // TODO: maybe need both read and write
+
+                .subresource_range = vk.ImageSubresourceRange{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = 0,
+                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
+                },
+            };
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 1,
+                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+            };
+            device.cmdPipelineBarrier2(frame.draw_cmd, &info);
+            self.draw_image.last_layout = .transfer_src_optimal;
+        }
+
+        { // swapchain_image undefined to transfer_dst for blit
+            const barrier = vk.ImageMemoryBarrier2{
+                .image = acquired.image.handle,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .old_layout = .undefined,
+                .new_layout = .transfer_dst_optimal,
+                .src_stage_mask = .{},
+                .src_access_mask = .{},
+                .dst_stage_mask = .{ .blit_bit = true },
+                .dst_access_mask = .{ .transfer_write_bit = true }, // TODO: maybe need both read and write
+
+                .subresource_range = vk.ImageSubresourceRange{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = 0,
+                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
+                },
+            };
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 1,
+                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+            };
+            device.cmdPipelineBarrier2(frame.draw_cmd, &info);
+        }
+
+        { // Blit draw image on swapchain image
+            const src_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
+            const src_offset_2 = vk.Offset3D{
+                .x = @intCast(self.draw_extent.width),
+                .y = @intCast(self.draw_extent.height),
+                .z = 1,
+            };
+
+            const dst_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
+            const dst_offset_2 = vk.Offset3D{
+                .x = @intCast(swapchain.extent.width),
+                .y = @intCast(swapchain.extent.height),
+                .z = 1,
+            };
+
+            const region = vk.ImageBlit2{
+                .src_offsets = .{ src_offset_1, src_offset_2 },
+                .dst_offsets = .{ dst_offset_1, dst_offset_2 },
+                .src_subresource = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+                .dst_subresource = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+            };
+
+            const info = vk.BlitImageInfo2{
+                .src_image = self.draw_image.image,
+                .src_image_layout = .transfer_src_optimal,
+                .dst_image = acquired.image.handle,
+                .dst_image_layout = .transfer_dst_optimal,
+                .filter = .linear,
+                .region_count = 1,
+                .p_regions = @ptrCast(&region),
+            };
+
+            device.cmdBlitImage2(frame.draw_cmd, &info);
+        }
+
+        { // swapchain_image transfer_dst to present
+            const barrier = vk.ImageMemoryBarrier2{
+                .image = acquired.image.handle,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .old_layout = .transfer_dst_optimal,
+                .new_layout = .present_src_khr,
+                .src_stage_mask = .{ .blit_bit = true },
+                .src_access_mask = .{ .transfer_write_bit = true },
+                .dst_stage_mask = .{ .bottom_of_pipe_bit = true },
+                .dst_access_mask = .{}, // ChatGPT said no access mask for presentation
+
+                .subresource_range = vk.ImageSubresourceRange{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = 0,
+                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
+                },
+            };
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 1,
+                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+            };
+            device.cmdPipelineBarrier2(frame.draw_cmd, &info);
+        }
+
+        try device.endCommandBuffer(frame.draw_cmd);
+
+        { // Submit
+            const buffer_submit = vk.CommandBufferSubmitInfo{
+                .command_buffer = frame.draw_cmd,
+                .device_mask = 0,
+            };
+
+            const wait_info = vk.SemaphoreSubmitInfo{
+                .semaphore = frame.image_acquired,
+                .stage_mask = .{ .blit_bit = true },
+                .device_index = 0,
+                .value = 1,
+            };
+
+            const signal_info = vk.SemaphoreSubmitInfo{
+                .semaphore = frame.rendering_done,
+                .stage_mask = .{ .all_graphics_bit = true },
+                .device_index = 0,
+                .value = 1,
+            };
+
+            const submit_info = vk.SubmitInfo2{
+                .command_buffer_info_count = 1,
+                .p_command_buffer_infos = @ptrCast(&buffer_submit),
+                .wait_semaphore_info_count = 1,
+                .p_wait_semaphore_infos = @ptrCast(&wait_info),
+                .signal_semaphore_info_count = 1,
+                .p_signal_semaphore_infos = @ptrCast(&signal_info),
+            };
+
+            try device.queueSubmit2(
+                self.rctx.graphics_queue.handle,
+                1,
+                @ptrCast(&submit_info),
+                frame.fence,
+            );
+        }
+
+        { // Present
+            const info = vk.PresentInfoKHR{
+                .swapchain_count = 1,
+                .p_swapchains = @ptrCast(&self.rctx.swapchain.handle),
+                .wait_semaphore_count = 1,
+                .p_wait_semaphores = @ptrCast(&frame.rendering_done),
+                .p_image_indices = @ptrCast(&acquired.image.index),
+            };
+
+            const res = device.queuePresentKHR(self.rctx.graphics_queue.handle, &info) catch |err| {
+                if (err != error.OutOfDateKHR) {
+                    std.log.err("Failed to present on the queue: {s}", .{@errorName(err)});
+                    return error.QueuePresentFailed;
+                }
+
+                try self.resize();
+                self.current_frame = (self.current_frame + 1) % CONCURRENT_FRAMES;
+                return;
+            };
+
+            if (res == vk.Result.suboptimal_khr or self.window_resized) {
+                try self.resize();
+            }
+
+            self.current_frame = (self.current_frame + 1) % CONCURRENT_FRAMES;
+        }
+    }
 };
