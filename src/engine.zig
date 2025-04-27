@@ -31,7 +31,6 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 // ===================================================================
 
 const CONCURRENT_FRAMES: u2 = 2;
-var frame_time: f64 = 0;
 
 const AllocatedImage = struct {
     image: vk.Image,
@@ -430,11 +429,6 @@ pub const Engine = struct {
             io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
             io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
 
-            if (builtin.os.tag == .windows) {
-                io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleViewports;
-                io.*.ConfigFlags |= c.ImGuiConfigFlags_ViewportsEnable;
-            }
-
             var font_cfg = c.ImFontConfig{
                 .FontDataOwnedByAtlas = false,
                 .GlyphMaxAdvanceX = std.math.floatMax(f32),
@@ -620,9 +614,9 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(frame.draw_cmd, &info);
         }
 
-        // c.cImGui_ImplVulkan_NewFrame();
-        // c.cImGui_ImplGlfw_NewFrame();
-        // c.ImGui_NewFrame();
+        c.cImGui_ImplVulkan_NewFrame();
+        c.cImGui_ImplGlfw_NewFrame();
+        c.ImGui_NewFrame();
 
         const color_attachment = vk.RenderingAttachmentInfo{
             .image_view = self.draw_image.view,
@@ -675,21 +669,15 @@ pub const Engine = struct {
 
         { // Draw ImGui stuff
 
-            // c.ImGui_ShowDemoWindow(null);
-            // c.ImGui_Text("Frame time %f", @as(f64, frame_time * 1000));
-            // if (c.ImGui_Button("Save")) {
-            //     std.log.info("Saved", .{});
-            // }
-            //
-            // c.ImGui_Render();
-            //
-            // const data = c.ImGui_GetDrawData();
-            // c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
-            //
-            // if (builtin.os.tag == .windows) {
-            //     c.ImGui_UpdatePlatformWindows();
-            //     c.ImGui_RenderPlatformWindowsDefault();
-            // }
+            c.ImGui_ShowDemoWindow(null);
+            if (c.ImGui_Button("Save")) {
+                std.log.info("Saved", .{});
+            }
+
+            c.ImGui_Render();
+
+            const data = c.ImGui_GetDrawData();
+            c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(frame.draw_cmd)));
         }
 
         device.cmdEndRendering(frame.draw_cmd);
