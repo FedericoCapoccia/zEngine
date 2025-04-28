@@ -11,6 +11,10 @@ const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
 
 const log = std.log.scoped(.engine);
 
+var frame_number: u128 = 0;
+var frame_time: f64 = 0;
+var previous_time: f64 = 0;
+
 // ===================================================================
 // [SECTION] GLFW callbacks
 // ===================================================================
@@ -386,6 +390,9 @@ pub const Engine = struct {
         self.rctx.device.destroyPipelineLayout(self.pipeline_layout, null);
         self.rctx.device.destroyPipeline(self.pipeline, null);
 
+        self.rctx.device.destroySemaphore(self.image_acquired, null);
+        self.rctx.device.destroySemaphore(self.render_done, null);
+        self.rctx.device.destroyFence(self.fence, null);
         self.rctx.device.destroyCommandPool(self.graphics_pool, null);
 
         self.rctx.destroy();
@@ -396,6 +403,8 @@ pub const Engine = struct {
     pub fn run(self: *Engine) !void {
         std.log.info("Running...", .{});
         self.window.show();
+
+        previous_time = glfw.getTime();
 
         const enable_loop = true;
         while (!self.window.shouldClose() and enable_loop) {
