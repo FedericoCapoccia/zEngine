@@ -78,7 +78,12 @@ pub const RenderContext = struct {
             if (enable_validation) {
                 try required_extensions.append(vk.extensions.ext_debug_utils.name);
                 try required_layers.append("VK_LAYER_KHRONOS_validation");
-                try required_layers.append("VK_LAYER_LUNARG_monitor");
+                try required_layers.append("VK_LAYER_KHRONOS_synchronization2");
+                if (builtin.target.os.tag == .windows) {
+                    try required_layers.append("VK_LAYER_LUNARG_monitor");
+                } else {
+                    // try required_layers.append("VK_LAYER_MANGOHUD_overlay_x86_64");
+                }
             }
 
             const glfw_extensions = try glfw.getRequiredInstanceExtensions();

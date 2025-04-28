@@ -58,6 +58,8 @@ pub const Engine = struct {
     // rendering stuff
     draw_image: AllocatedImage = undefined,
     draw_extent: vk.Extent2D = undefined,
+    draw_image_ready: vk.Semaphore = .null_handle,
+
     graphics_pool: vk.CommandPool = .null_handle,
     frames: [CONCURRENT_FRAMES]FrameData = .{FrameData{}} ** CONCURRENT_FRAMES,
     current_frame: u2 = 0,
@@ -191,6 +193,8 @@ pub const Engine = struct {
                 .width = self.draw_image.extent.width,
                 .height = self.draw_image.extent.height,
             };
+
+            self.draw_image_ready = try self.rctx.device.createSemaphore(&.{}, null);
         }
         errdefer {
             self.rctx.device.destroyImageView(self.draw_image.view, null);
@@ -346,7 +350,7 @@ pub const Engine = struct {
 
             const render_info = vk.PipelineRenderingCreateInfo{
                 .color_attachment_count = 1,
-                .p_color_attachment_formats = @ptrCast(&self.draw_image.format),
+                .p_color_attachment_formats = @ptrCast(&self.draw_image.format), // TODO: format change for test
                 .depth_attachment_format = .undefined,
                 .stencil_attachment_format = .undefined,
                 .view_mask = 0,
@@ -515,6 +519,7 @@ pub const Engine = struct {
 
         self.rctx.device.destroyImageView(self.draw_image.view, null);
         c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.draw_image.image)), self.draw_image.alloc);
+        self.rctx.device.destroySemaphore(self.draw_image_ready, null);
 
         self.rctx.destroy();
         self.window.destroy();
@@ -586,17 +591,17 @@ pub const Engine = struct {
         const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
         try device.beginCommandBuffer(frame.draw_cmd, &begin_info);
 
-        { // undefined to color attachment
-            const barrier = vk.ImageMemoryBarrier2{
+        {
+            const draw_to_color = vk.ImageMemoryBarrier2{
                 .image = self.draw_image.image,
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .old_layout = self.draw_image.last_layout,
                 .new_layout = .color_attachment_optimal,
-                .src_stage_mask = .{}, // NONE
-                .src_access_mask = .{}, // NONE
-                .dst_stage_mask = .{ .color_attachment_output_bit = true },
+                .src_access_mask = .{},
                 .dst_access_mask = .{ .color_attachment_write_bit = true },
+                .src_stage_mask = .{ .color_attachment_output_bit = true },
+                .dst_stage_mask = .{ .color_attachment_output_bit = true },
 
                 .subresource_range = vk.ImageSubresourceRange{
                     .aspect_mask = .{ .color_bit = true },
@@ -609,7 +614,7 @@ pub const Engine = struct {
 
             const info = vk.DependencyInfo{
                 .image_memory_barrier_count = 1,
-                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+                .p_image_memory_barriers = @ptrCast(@constCast(&draw_to_color)),
             };
             device.cmdPipelineBarrier2(frame.draw_cmd, &info);
         }
@@ -682,17 +687,17 @@ pub const Engine = struct {
 
         device.cmdEndRendering(frame.draw_cmd);
 
-        { // color attachment to transfer_src for blit
-            const barrier = vk.ImageMemoryBarrier2{
+        {
+            const to_transfer_src = vk.ImageMemoryBarrier2{
                 .image = self.draw_image.image,
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .old_layout = .color_attachment_optimal,
                 .new_layout = .transfer_src_optimal,
-                .src_stage_mask = .{ .color_attachment_output_bit = true },
                 .src_access_mask = .{ .color_attachment_write_bit = true },
-                .dst_stage_mask = .{ .blit_bit = true },
-                .dst_access_mask = .{ .transfer_read_bit = true }, // TODO: maybe need both read and write
+                .dst_access_mask = .{ .transfer_read_bit = true },
+                .src_stage_mask = .{ .color_attachment_output_bit = true },
+                .dst_stage_mask = .{ .all_transfer_bit = true },
 
                 .subresource_range = vk.ImageSubresourceRange{
                     .aspect_mask = .{ .color_bit = true },
@@ -705,23 +710,23 @@ pub const Engine = struct {
 
             const info = vk.DependencyInfo{
                 .image_memory_barrier_count = 1,
-                .p_image_memory_barriers = @ptrCast(@constCast(&barrier)),
+                .p_image_memory_barriers = @ptrCast(@constCast(&to_transfer_src)),
             };
             device.cmdPipelineBarrier2(frame.draw_cmd, &info);
             self.draw_image.last_layout = .transfer_src_optimal;
         }
 
-        { // swapchain_image undefined to transfer_dst for blit
+        {
             const barrier = vk.ImageMemoryBarrier2{
                 .image = acquired.image.handle,
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .old_layout = .undefined,
                 .new_layout = .transfer_dst_optimal,
-                .src_stage_mask = .{},
                 .src_access_mask = .{},
-                .dst_stage_mask = .{ .blit_bit = true },
-                .dst_access_mask = .{ .transfer_write_bit = true }, // TODO: maybe need both read and write
+                .dst_access_mask = .{ .transfer_write_bit = true },
+                .src_stage_mask = .{ .all_transfer_bit = true },
+                .dst_stage_mask = .{ .all_transfer_bit = true },
 
                 .subresource_range = vk.ImageSubresourceRange{
                     .aspect_mask = .{ .color_bit = true },
@@ -791,10 +796,10 @@ pub const Engine = struct {
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .old_layout = .transfer_dst_optimal,
                 .new_layout = .present_src_khr,
-                .src_stage_mask = .{ .blit_bit = true },
                 .src_access_mask = .{ .transfer_write_bit = true },
-                .dst_stage_mask = .{ .bottom_of_pipe_bit = true },
-                .dst_access_mask = .{}, // ChatGPT said no access mask for presentation
+                .dst_access_mask = .{},
+                .src_stage_mask = .{ .all_transfer_bit = true },
+                .dst_stage_mask = .{},
 
                 .subresource_range = vk.ImageSubresourceRange{
                     .aspect_mask = .{ .color_bit = true },
@@ -815,40 +820,65 @@ pub const Engine = struct {
         try device.endCommandBuffer(frame.draw_cmd);
 
         { // Submit
-            const buffer_submit = vk.CommandBufferSubmitInfo{
+            // const dst_stage_mask = vk.PipelineStageFlags{ .transfer_bit = true };
+            // const info = vk.SubmitInfo{
+            //     .command_buffer_count = 1,
+            //     .p_command_buffers = @ptrCast(&frame.draw_cmd),
+            //     .wait_semaphore_count = 1,
+            //     .p_wait_semaphores = @ptrCast(&frame.image_acquired),
+            //     .p_wait_dst_stage_mask = @ptrCast(&dst_stage_mask),
+            //     .signal_semaphore_count = 1,
+            //     .p_signal_semaphores = @ptrCast(&frame.rendering_done),
+            // };
+            //
+            // try device.queueSubmit(self.rctx.graphics_queue.handle, 1, @ptrCast(&info), frame.fence);
+
+            const command_buffer_submit = vk.CommandBufferSubmitInfo{
                 .command_buffer = frame.draw_cmd,
                 .device_mask = 0,
             };
 
-            const wait_info = vk.SemaphoreSubmitInfo{
+            const wait_for_draw_image_ready = vk.SemaphoreSubmitInfo{
+                .semaphore = self.draw_image_ready,
+                .stage_mask = .{ .color_attachment_output_bit = true },
+                .value = 1,
+                .device_index = 0,
+            };
+
+            // this tells the GPU to wait on the image_acquired semaphore before starting all_transfer stage
+            const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
                 .semaphore = frame.image_acquired,
-                .stage_mask = .{ .blit_bit = true },
-                .device_index = 0,
+                .stage_mask = .{ .all_transfer_bit = true },
                 .value = 1,
+                .device_index = 0,
             };
 
-            const signal_info = vk.SemaphoreSubmitInfo{
+            // this tells the GPU to signal the rendering_done semaphore after all transfer commands (so draw image has been copied on swapchain and ready to present)
+            const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
                 .semaphore = frame.rendering_done,
-                .stage_mask = .{ .all_graphics_bit = true },
-                .device_index = 0,
+                .stage_mask = .{ .all_transfer_bit = true },
                 .value = 1,
+                .device_index = 0,
             };
 
-            const submit_info = vk.SubmitInfo2{
+            // this tells the GPU to signal draw_image_ready semaphore after all transfer command (so draw image has been copied on swapchain and it's safe to write on top)
+            const signal_draw_image_ready = vk.SemaphoreSubmitInfo{
+                .semaphore = self.draw_image_ready,
+                .stage_mask = .{ .all_transfer_bit = true },
+                .value = 1,
+                .device_index = 0,
+            };
+
+            const submit = vk.SubmitInfo2{
                 .command_buffer_info_count = 1,
-                .p_command_buffer_infos = @ptrCast(&buffer_submit),
-                .wait_semaphore_info_count = 1,
-                .p_wait_semaphore_infos = @ptrCast(&wait_info),
-                .signal_semaphore_info_count = 1,
-                .p_signal_semaphore_infos = @ptrCast(&signal_info),
+                .p_command_buffer_infos = @ptrCast(&command_buffer_submit),
+                .wait_semaphore_info_count = 2,
+                .p_wait_semaphore_infos = &.{ wait_for_draw_image_ready, wait_for_swapchain_image_acquired },
+                .signal_semaphore_info_count = 2,
+                .p_signal_semaphore_infos = &.{ signal_on_rendering_done, signal_draw_image_ready },
             };
 
-            try device.queueSubmit2(
-                self.rctx.graphics_queue.handle,
-                1,
-                @ptrCast(&submit_info),
-                frame.fence,
-            );
+            try device.queueSubmit2(self.rctx.graphics_queue.handle, 1, @ptrCast(&submit), frame.fence);
         }
 
         { // Present
