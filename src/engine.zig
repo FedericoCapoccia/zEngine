@@ -11,9 +11,24 @@ const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
 
 const log = std.log.scoped(.engine);
 
-var frame_number: u128 = 0;
-var frame_time: f64 = 0;
-var previous_time: f64 = 0;
+const Time = struct {
+    timer: std.time.Timer = undefined,
+    current: f64 = 0,
+    previous: f64 = 0,
+    update: f64 = 0,
+    draw: f64 = 0,
+    target: f64 = 0,
+    frame: f64 = 0,
+    frame_counter: u32 = 0,
+
+    // return the current time in seconds
+    pub fn getTime(self: *Time) f64 {
+        const now: f64 = @floatFromInt(self.timer.read());
+        return now / std.time.ns_per_s;
+    }
+};
+
+var ENGINE_TIME: Time = Time{};
 
 // ===================================================================
 // [SECTION] GLFW callbacks
@@ -404,13 +419,24 @@ pub const Engine = struct {
         std.log.info("Running...", .{});
         self.window.show();
 
-        previous_time = glfw.getTime();
+        ENGINE_TIME.timer = try std.time.Timer.start();
 
-        const enable_loop = true;
-        while (!self.window.shouldClose() and enable_loop) {
+        while (!self.window.shouldClose()) {
+            // Update logic
+            ENGINE_TIME.current = ENGINE_TIME.getTime();
+            ENGINE_TIME.update = ENGINE_TIME.current - ENGINE_TIME.previous;
+            ENGINE_TIME.previous = ENGINE_TIME.current;
+
+            // Render logic
             self.draw() catch |err| {
                 log.warn("Failed to draw frame: {s}", .{@errorName(err)});
             };
+
+            ENGINE_TIME.current = ENGINE_TIME.getTime();
+            ENGINE_TIME.draw = ENGINE_TIME.current - ENGINE_TIME.previous;
+            ENGINE_TIME.previous = ENGINE_TIME.current;
+
+            ENGINE_TIME.frame = ENGINE_TIME.update + ENGINE_TIME.draw;
 
             glfw.pollEvents();
         }
@@ -548,12 +574,12 @@ pub const Engine = struct {
         { // Draw ImGui stuff
 
             c.ImGui_ShowDemoWindow(null);
-            if (c.ImGui_Button("Save")) {
-                std.log.info("Saved", .{});
-            }
+            _ = c.ImGui_Begin("Tool", null, 0);
+            c.ImGui_Text("Frame time: %.3f ms", ENGINE_TIME.frame * std.time.ms_per_s);
+            // c.ImGui_Text("FPS: %.0f ms", fps);
+            c.ImGui_End();
 
             c.ImGui_Render();
-
             const data = c.ImGui_GetDrawData();
             c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
         }
