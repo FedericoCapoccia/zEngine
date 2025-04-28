@@ -558,7 +558,7 @@ pub const Engine = struct {
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .old_layout = .color_attachment_optimal,
                 .new_layout = .present_src_khr,
-                .src_access_mask = .{ .color_attachment_write_bit = true },
+                .src_access_mask = .{ .color_attachment_write_bit = true, .color_attachment_read_bit = true },
                 .dst_access_mask = .{},
                 .src_stage_mask = .{ .color_attachment_output_bit = true },
                 .dst_stage_mask = .{ .bottom_of_pipe_bit = true },
