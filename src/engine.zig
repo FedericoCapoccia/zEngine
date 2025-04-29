@@ -12,6 +12,8 @@ const core = @import("core/core.zig");
 
 const log = std.log.scoped(.engine);
 
+const ENABLE_IMGUI = false;
+
 // ===================================================================
 // [SECTION] GLFW callbacks
 // ===================================================================
@@ -494,9 +496,11 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(self.draw_cmd, &info);
         }
 
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
+        if (ENABLE_IMGUI) {
+            c.cImGui_ImplVulkan_NewFrame();
+            c.cImGui_ImplGlfw_NewFrame();
+            c.ImGui_NewFrame();
+        }
 
         const draw_extent = swapchain.extent;
 
@@ -551,15 +555,25 @@ pub const Engine = struct {
 
         { // Draw ImGui stuff
 
-            c.ImGui_ShowDemoWindow(null);
-            _ = c.ImGui_Begin("Tool", null, 0);
-            c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
-            c.ImGui_Text("FPS: %d", self.timer.getFPS());
-            c.ImGui_End();
+            if (ENABLE_IMGUI) {
+                c.ImGui_ShowDemoWindow(null);
+                _ = c.ImGui_Begin("Tool", null, 0);
+                c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
+                c.ImGui_Text("FPS: %d", self.timer.getFPS());
+                c.ImGui_End();
 
-            c.ImGui_Render();
-            const data = c.ImGui_GetDrawData();
-            c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
+                c.ImGui_Render();
+                const data = c.ImGui_GetDrawData();
+                c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
+            } else {
+                const formatted = try std.fmt.allocPrintZ(
+                    self.allocator,
+                    "frametime: {d:.3}ms, FPS: {d}",
+                    .{ self.timer.getFrametimeInMs(), self.timer.getFPS() },
+                );
+                defer self.allocator.free(formatted);
+                self.window.setTitle(formatted);
+            }
         }
 
         device.cmdEndRendering(self.draw_cmd);
