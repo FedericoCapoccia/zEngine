@@ -305,8 +305,10 @@ pub const RenderContext = struct {
                 });
             }
 
-            const supported_features = this.instance.getPhysicalDeviceFeatures(this.physical_device);
-            _ = supported_features;
+            var supported_features = vk.PhysicalDeviceFeatures2{
+                .features = undefined,
+            };
+            this.instance.getPhysicalDeviceFeatures2(this.physical_device, &supported_features);
 
             const timeline_semaphore_feature = vk.PhysicalDeviceTimelineSemaphoreFeatures{ .timeline_semaphore = 1 };
 
