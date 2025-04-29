@@ -38,6 +38,7 @@ pub const Engine = struct {
     window: *glfw.Window = undefined,
     window_resized: bool = false,
     rctx: RenderContext = undefined,
+    gui: ?core.Gui = null,
 
     // Frame
     graphics_pool: vk.CommandPool = .null_handle,
@@ -48,9 +49,6 @@ pub const Engine = struct {
 
     pipeline: vk.Pipeline = .null_handle,
     pipeline_layout: vk.PipelineLayout = .null_handle,
-
-    imgui_pool: vk.DescriptorPool = .null_handle,
-    imgui_ctx: *c.ImGuiContext = undefined,
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
@@ -96,12 +94,30 @@ pub const Engine = struct {
         errdefer self.rctx.destroy();
 
         // ===================================================================
+        // [SECTION] ImGui
+        // ===================================================================
+        if (config.imgui_enabled) {
+            const info = core.Gui.CreateInfo{
+                .window = self.window,
+                .instance = self.rctx.instance.handle,
+                .physical_device = self.rctx.physical_device,
+                .qfamily = self.rctx.graphics_queue.family,
+                .queue = self.rctx.graphics_queue.handle,
+                .device = &self.rctx.device,
+                .target_format = self.rctx.swapchain.format,
+                .min_image_count = self.rctx.swapchain.min_image_count,
+                .image_count = @intCast(self.rctx.swapchain.images.len),
+            };
+            self.gui = try core.Gui.new(info);
+        }
+
+        // ===================================================================
         // [SECTION] Rendering Data
         // ===================================================================
         {
             self.graphics_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
                 .queue_family_index = self.rctx.graphics_queue.family,
-                .flags = .{ .transient_bit = true, .reset_command_buffer_bit = true },
+                .flags = .{ .transient_bit = true },
             }, null);
 
             const alloc = vk.CommandBufferAllocateInfo{
@@ -285,111 +301,15 @@ pub const Engine = struct {
 
             _ = try self.rctx.device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_info), null, @ptrCast(&self.pipeline));
         }
-
-        // ===================================================================
-        // [SECTION] ImGui setup
-        // ===================================================================
-        {
-            const pool_sizes = [_]vk.DescriptorPoolSize{
-                vk.DescriptorPoolSize{ .type = .sampler, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .combined_image_sampler, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .sampled_image, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .storage_image, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .uniform_texel_buffer, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .storage_texel_buffer, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .uniform_buffer, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .storage_buffer, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .uniform_buffer_dynamic, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .storage_buffer_dynamic, .descriptor_count = 1000 },
-                vk.DescriptorPoolSize{ .type = .input_attachment, .descriptor_count = 1000 },
-            };
-
-            const pool_create_info = vk.DescriptorPoolCreateInfo{
-                .flags = .{ .free_descriptor_set_bit = true },
-                .max_sets = 1000,
-                .pool_size_count = @intCast(pool_sizes.len),
-                .p_pool_sizes = @ptrCast(&pool_sizes[0]),
-            };
-
-            self.imgui_pool = try self.rctx.device.createDescriptorPool(&pool_create_info, null);
-            self.imgui_ctx = c.ImGui_CreateContext(null).?;
-
-            const io = c.ImGui_GetIO();
-            io.*.ConfigFlags |= c.ImGuiConfigFlags_DpiEnableScaleFonts;
-            io.*.ConfigFlags |= c.ImGuiConfigFlags_DockingEnable;
-
-            var font_cfg = c.ImFontConfig{
-                .FontDataOwnedByAtlas = false,
-                .GlyphMaxAdvanceX = std.math.floatMax(f32),
-                .RasterizerMultiply = 1.0,
-                .RasterizerDensity = 1.0,
-                .OversampleH = 2,
-                .OversampleV = 2,
-            };
-
-            const font = @embedFile("resources/jetbrainsmono.ttf");
-
-            _ = c.ImFontAtlas_AddFontFromMemoryTTF(
-                io.*.Fonts,
-                @constCast(font),
-                font.len,
-                20.0,
-                &font_cfg,
-                null,
-            );
-
-            const scale_x, const scale_y = self.window.getContentScale();
-
-            const style = c.ImGui_GetStyle();
-            c.ImGui_StyleColorsDark(style);
-            c.ImGuiStyle_ScaleAllSizes(style, @max(scale_x, scale_y));
-
-            style.*.WindowRounding = 0.0;
-            style.*.Colors[c.ImGuiCol_WindowBg].w = 1.0;
-
-            for (0..c.ImGuiCol_COUNT) |idx| {
-                const col = &style.*.Colors[idx];
-                col.*.x = vk_utils.linearizeColorComponent(col.*.x);
-                col.*.y = vk_utils.linearizeColorComponent(col.*.y);
-                col.*.z = vk_utils.linearizeColorComponent(col.*.z);
-            }
-
-            _ = c.cImGui_ImplGlfw_InitForVulkan(@ptrCast(self.window), true);
-
-            const imgui_pipeline_info = c.VkPipelineRenderingCreateInfo{
-                .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
-                .pNext = null,
-                .colorAttachmentCount = 1,
-                .pColorAttachmentFormats = @ptrCast(&self.rctx.swapchain.format),
-            };
-
-            const imgui_init_info = c.ImGui_ImplVulkan_InitInfo{
-                .Instance = @ptrFromInt(@intFromEnum(self.rctx.instance.handle)),
-                .PhysicalDevice = @ptrFromInt(@intFromEnum(self.rctx.physical_device)),
-                .Device = @ptrFromInt(@intFromEnum(self.rctx.device.handle)),
-                .QueueFamily = self.rctx.graphics_queue.family,
-                .Queue = @ptrFromInt(@intFromEnum(self.rctx.graphics_queue.handle)),
-                .DescriptorPool = @ptrFromInt(@intFromEnum(self.imgui_pool)),
-                .MinImageCount = 2,
-                .ImageCount = @intCast(self.rctx.swapchain.images.len),
-                .MSAASamples = c.VK_SAMPLE_COUNT_1_BIT,
-                .UseDynamicRendering = true,
-                .PipelineRenderingCreateInfo = imgui_pipeline_info,
-            };
-
-            _ = c.cImGui_ImplVulkan_Init(@ptrCast(@constCast(&imgui_init_info)));
-            _ = c.cImGui_ImplVulkan_CreateFontsTexture();
-        }
     }
 
     pub fn shutdown(self: *Engine) void {
         std.log.info("Shutting down engine", .{});
         self.rctx.device.deviceWaitIdle() catch {};
 
-        c.cImGui_ImplVulkan_Shutdown();
-        self.rctx.device.destroyDescriptorPool(self.imgui_pool, null);
-        c.cImGui_ImplGlfw_Shutdown();
-        c.ImGui_DestroyContext(self.imgui_ctx);
+        if (self.gui) |gui| {
+            gui.destroy();
+        }
 
         self.rctx.device.destroyPipelineLayout(self.pipeline_layout, null);
         self.rctx.device.destroyPipeline(self.pipeline, null);
@@ -440,6 +360,11 @@ pub const Engine = struct {
         };
 
         try self.rctx.swapchain.createOrResize(info, self.allocator);
+
+        if (self.gui) |gui| {
+            gui.onResize(self.rctx.swapchain.min_image_count);
+        }
+
         self.window_resized = false;
         self.timer.frame_counter = 0; // resets frametime tracking on resize
     }
@@ -467,7 +392,8 @@ pub const Engine = struct {
 
         try device.resetFences(1, @ptrCast(&self.fence));
 
-        try device.resetCommandBuffer(self.draw_cmd, .{});
+        try device.resetCommandPool(self.graphics_pool, .{});
+
         const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
         try device.beginCommandBuffer(self.draw_cmd, &begin_info);
 
@@ -499,10 +425,8 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(self.draw_cmd, &info);
         }
 
-        if (config.imgui_enabled) {
-            c.cImGui_ImplVulkan_NewFrame();
-            c.cImGui_ImplGlfw_NewFrame();
-            c.ImGui_NewFrame();
+        if (self.gui) |gui| {
+            gui.newFrame();
         }
 
         const draw_extent = swapchain.extent;
@@ -516,7 +440,7 @@ pub const Engine = struct {
             .resolve_image_layout = .undefined,
             .resolve_image_view = .null_handle,
             .clear_value = vk.ClearValue{
-                .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
+                .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 0.0 } },
             },
         };
 
@@ -558,21 +482,8 @@ pub const Engine = struct {
             vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
         }
 
-        { // Draw ImGui stuff
-
-            if (config.imgui_enabled) {
-                vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
-                // c.ImGui_ShowDemoWindow(null);
-                _ = c.ImGui_Begin("Tool", null, 0);
-                c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
-                c.ImGui_Text("FPS: %d", self.timer.getFPS());
-                c.ImGui_End();
-
-                c.ImGui_Render();
-                const data = c.ImGui_GetDrawData();
-                c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
-                vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
-            }
+        if (self.gui) |gui| {
+            gui.draw(self.draw_cmd, &self.timer);
         }
 
         device.cmdEndRendering(self.draw_cmd);

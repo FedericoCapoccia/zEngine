@@ -24,13 +24,6 @@ pub fn createShaderModule(device: vk.DeviceProxy, code: []const u8) !vk.ShaderMo
     return device.createShaderModule(&create_info, null);
 }
 
-pub fn linearizeColorComponent(srgb: f32) f32 {
-    return if (srgb <= 0.04045)
-        srgb / 12.92
-    else
-        std.math.pow(f32, (srgb + 0.055) / 1.055, 2.4);
-}
-
 // ===================================================================
 // [SECTION] Logging
 // ===================================================================

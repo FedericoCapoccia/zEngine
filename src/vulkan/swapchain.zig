@@ -10,6 +10,7 @@ pub const Swapchain = struct {
     format: vk.SurfaceFormatKHR = undefined,
     images: []vk.Image = undefined,
     views: []vk.ImageView = undefined,
+    min_image_count: u32 = undefined,
 
     pub const Info = struct {
         instance: *const vk.InstanceProxy,
@@ -57,6 +58,7 @@ pub const Swapchain = struct {
             self.format = undefined;
             self.extent = undefined;
             self.handle = .null_handle;
+            self.min_image_count = undefined;
         }
         defer {
             if (old_swapchain) |old| { // cleanup old swapchain if present
@@ -69,7 +71,7 @@ pub const Swapchain = struct {
         self.format = try chooseFormat(info, allocator);
         self.extent = chooseExtent(info.extent, capabilities);
 
-        const image_count = blk: {
+        self.min_image_count = blk: {
             const desired_count = capabilities.min_image_count + 1;
             if (capabilities.max_image_count > 0) {
                 break :blk @min(desired_count, capabilities.max_image_count);
@@ -79,7 +81,7 @@ pub const Swapchain = struct {
 
         const create_info = vk.SwapchainCreateInfoKHR{
             .surface = info.surface,
-            .min_image_count = image_count,
+            .min_image_count = self.min_image_count,
             .image_format = self.format.format,
             .image_color_space = self.format.color_space,
             .image_extent = self.extent,
