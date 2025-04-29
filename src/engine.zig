@@ -8,63 +8,9 @@ const vk_utils = @import("vulkan/utils.zig");
 const c = @import("c");
 const RenderContext = @import("vulkan/context.zig").RenderContext;
 const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
+const Timer = @import("core/timer.zig").Timer;
 
 const log = std.log.scoped(.engine);
-
-const Time = struct {
-    const FPS_CAPTURE_FRAMES_COUNT: u32 = 30;
-    const FPS_AVERAGE_TIME_SECONDS: f64 = 0.5;
-    const FPS_STEP = FPS_AVERAGE_TIME_SECONDS / @as(f64, FPS_CAPTURE_FRAMES_COUNT);
-
-    timer: std.time.Timer = undefined,
-    current: f64 = 0,
-    previous: f64 = 0,
-    update: f64 = 0,
-    draw: f64 = 0,
-    target: f64 = 0,
-    frame: f64 = 0,
-    frame_counter: u32 = 0,
-
-    //FPS stuff
-    _fps_index: u32 = 0,
-    _fps_history: [FPS_CAPTURE_FRAMES_COUNT]f64 = .{0} ** FPS_CAPTURE_FRAMES_COUNT,
-    _fps_average: f64 = 0,
-    _fps_last: f64 = 0,
-
-    // return the current time in seconds
-    pub fn getTime(self: *Time) f64 {
-        const now: f64 = @floatFromInt(self.timer.read());
-        return now / std.time.ns_per_s;
-    }
-
-    pub fn getFPS(self: *Time) u64 {
-        const frametime = self.frame;
-
-        if (self.frame_counter == 0) {
-            self._fps_average = 0;
-            self._fps_last = 0;
-            self._fps_index = 0;
-            for (0..FPS_CAPTURE_FRAMES_COUNT) |i| {
-                self._fps_history[i] = 0;
-            }
-        }
-
-        if (frametime == 0) return 0;
-
-        if ((self.getTime() - self._fps_last) > FPS_STEP) {
-            self._fps_last = self.getTime();
-            self._fps_index = (self._fps_index + 1) % FPS_CAPTURE_FRAMES_COUNT;
-            self._fps_average -= self._fps_history[self._fps_index];
-            self._fps_history[self._fps_index] = frametime / FPS_CAPTURE_FRAMES_COUNT;
-            self._fps_average += self._fps_history[self._fps_index];
-        }
-
-        const fps_float = std.math.round(1.0 / self._fps_average);
-        return @intFromFloat(fps_float);
-    }
-};
-
-var ENGINE_TIME: Time = Time{};
 
 // ===================================================================
 // [SECTION] GLFW callbacks
@@ -87,6 +33,7 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 pub const Engine = struct {
     // engine stuff
     allocator: std.mem.Allocator,
+    timer: Timer = undefined,
     window: *glfw.Window = undefined,
     window_resized: bool = false,
     rctx: RenderContext = undefined,
@@ -106,6 +53,7 @@ pub const Engine = struct {
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
+        self.timer = try Timer.new();
 
         // ===================================================================
         // [SECTION] Window
@@ -455,25 +403,17 @@ pub const Engine = struct {
         std.log.info("Running...", .{});
         self.window.show();
 
-        ENGINE_TIME.timer = try std.time.Timer.start();
-
         while (!self.window.shouldClose()) {
             // Update logic
-            ENGINE_TIME.current = ENGINE_TIME.getTime();
-            ENGINE_TIME.update = ENGINE_TIME.current - ENGINE_TIME.previous;
-            ENGINE_TIME.previous = ENGINE_TIME.current;
+            _ = self.timer.trackUpdate();
 
             // Render logic
             self.draw() catch |err| {
                 log.warn("Failed to draw frame: {s}", .{@errorName(err)});
             };
 
-            ENGINE_TIME.current = ENGINE_TIME.getTime();
-            ENGINE_TIME.draw = ENGINE_TIME.current - ENGINE_TIME.previous;
-            ENGINE_TIME.previous = ENGINE_TIME.current;
-
-            ENGINE_TIME.frame = ENGINE_TIME.update + ENGINE_TIME.draw;
-            ENGINE_TIME.frame_counter += 1;
+            _ = self.timer.trackDraw();
+            self.timer.computeFrametime();
 
             glfw.pollEvents();
         }
@@ -496,7 +436,7 @@ pub const Engine = struct {
 
         try self.rctx.swapchain.createOrResize(info, self.allocator);
         self.window_resized = false;
-        ENGINE_TIME.frame_counter = 0;
+        self.timer.frame_counter = 0; // resets frametime tracking on resize
     }
 
     fn draw(self: *Engine) !void {
@@ -613,8 +553,8 @@ pub const Engine = struct {
 
             c.ImGui_ShowDemoWindow(null);
             _ = c.ImGui_Begin("Tool", null, 0);
-            c.ImGui_Text("Frame time: %.3f ms", ENGINE_TIME.frame * std.time.ms_per_s);
-            c.ImGui_Text("FPS: %d", ENGINE_TIME.getFPS());
+            c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
+            c.ImGui_Text("FPS: %d", self.timer.getFPS());
             c.ImGui_End();
 
             c.ImGui_Render();
