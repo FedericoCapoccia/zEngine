@@ -8,7 +8,7 @@ const vk_utils = @import("vulkan/utils.zig");
 const c = @import("c");
 const RenderContext = @import("vulkan/context.zig").RenderContext;
 const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
-const Timer = @import("core/timer.zig").Timer;
+const core = @import("core/core.zig");
 
 const log = std.log.scoped(.engine);
 
@@ -33,7 +33,7 @@ fn onFramebufferResize(window: *glfw.Window, _: c_int, _: c_int) callconv(.C) vo
 pub const Engine = struct {
     // engine stuff
     allocator: std.mem.Allocator,
-    timer: Timer = undefined,
+    timer: core.Timer = undefined,
     window: *glfw.Window = undefined,
     window_resized: bool = false,
     rctx: RenderContext = undefined,
@@ -53,7 +53,7 @@ pub const Engine = struct {
 
     pub fn init(self: *Engine) !void {
         log.info("Initializing engine", .{});
-        self.timer = try Timer.new();
+        self.timer = try core.Timer.new();
 
         // ===================================================================
         // [SECTION] Window
