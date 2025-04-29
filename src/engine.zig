@@ -61,6 +61,10 @@ pub const Engine = struct {
         // ===================================================================
         _ = glfw.setErrorCallback(onError);
 
+        if (builtin.target.os.tag == .linux and config.use_x11) {
+            try glfw.initHint(.platform, c.GLFW_PLATFORM_X11);
+        }
+
         try glfw.init();
         errdefer glfw.terminate();
 
@@ -572,14 +576,6 @@ pub const Engine = struct {
                 const data = c.ImGui_GetDrawData();
                 c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
                 vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
-            } else {
-                const formatted = try std.fmt.allocPrintZ(
-                    self.allocator,
-                    "frametime: {d:.3}ms, FPS: {d}",
-                    .{ self.timer.getFrametimeInMs(), self.timer.getFPS() },
-                );
-                defer self.allocator.free(formatted);
-                self.window.setTitle(formatted);
             }
         }
 

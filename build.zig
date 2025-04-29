@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) !void {
     // ===================================================================
     // [SECTION] GLFW Zig Bindings
     // ===================================================================
+    std.log.info("zGlfw step", .{});
     const zglfw = b.dependency("zglfw", .{
         .x11 = true,
         .wayland = true,
@@ -38,6 +39,7 @@ pub fn build(b: *std.Build) !void {
     const registry_path = std.fmt.allocPrint(b.allocator, "{s}/share/vulkan/registry/vk.xml", .{vulkan_sdk}) catch unreachable;
     const libs_path = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable;
     const header_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{vulkan_sdk}) catch unreachable;
+    std.log.info("Vulkan step", .{});
 
     std.log.info("Vulkan headers path: {s}", .{header_path});
     std.log.info("Vulkan registry: {s}", .{registry_path});
@@ -69,6 +71,7 @@ pub fn build(b: *std.Build) !void {
     // [SECTION] ImGui
     // ===================================================================
     {
+        std.log.info("ImGui step", .{});
         const imgui = b.addLibrary(.{
             .name = "imgui",
             .linkage = .static,
@@ -108,6 +111,7 @@ pub fn build(b: *std.Build) !void {
     // [SECTION] VulkanMemoryAllocator
     // ===================================================================
     {
+        std.log.info("Vma step", .{});
         const vma = b.addLibrary(.{
             .name = "VulkanMemoryAllocator",
             .linkage = .static,
@@ -132,6 +136,7 @@ pub fn build(b: *std.Build) !void {
     // [SECTION] C module
     // ===================================================================
     {
+        std.log.info("Building C module", .{});
         const files = blk: {
             if (target.result.os.tag == .linux) {
                 break :blk b.addWriteFiles().add("c.h",
@@ -173,7 +178,9 @@ pub fn build(b: *std.Build) !void {
         c_translate.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
         c_translate.addIncludePath(std.Build.LazyPath{ .cwd_relative = header_path });
         c_translate.addIncludePath(b.path("thirdparty/imgui"));
-        exe.root_module.addImport("c", c_translate.createModule());
+        const mod = c_translate.createModule();
+        mod.linkSystemLibrary("X11", .{});
+        exe.root_module.addImport("c", mod);
     }
 
     b.installArtifact(exe);
