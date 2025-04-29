@@ -15,15 +15,33 @@ pub fn build(b: *std.Build) !void {
         .link_libc = true,
     });
 
+    const use_x11 = b.option(bool, "USE_X11", "On linux prefer X11 backend over Wayland, default = false") orelse false;
+    const use_imgui = b.option(bool, "USE_IMGUI", "Enable ImGui. default = true") orelse true;
+
+    const options = b.addOptions();
+    options.addOption(bool, "use_x11", use_x11);
+    options.addOption(bool, "imgui_enabled", use_imgui);
+
+    exe.root_module.addOptions("config", options);
+
     // ===================================================================
     // [SECTION] GLFW Zig Bindings
     // ===================================================================
     const zglfw = b.dependency("zglfw", .{
-        .x11 = false,
+        .x11 = true,
         .wayland = true,
     });
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.linkLibrary(zglfw.artifact("glfw"));
+
+    const vulkan_sdk = env.get("VULKAN_SDK") orelse @panic("Failed to retrieve VULKAN_SDK env var");
+    const registry_path = std.fmt.allocPrint(b.allocator, "{s}/share/vulkan/registry/vk.xml", .{vulkan_sdk}) catch unreachable;
+    const libs_path = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable;
+    const header_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{vulkan_sdk}) catch unreachable;
+
+    std.log.info("Vulkan headers path: {s}", .{header_path});
+    std.log.info("Vulkan registry: {s}", .{registry_path});
+    std.log.info("Vulkan libraries: {s}", .{libs_path});
 
     // ===================================================================
     // [SECTION] Vulkan
@@ -31,8 +49,7 @@ pub fn build(b: *std.Build) !void {
     {
         switch (target.result.os.tag) {
             .windows => {
-                const vulkan_sdk = env.get("VULKAN_SDK") orelse @panic("Failed to retrieve VULKAN_SDK env var");
-                exe.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable });
+                exe.addLibraryPath(std.Build.LazyPath{ .cwd_relative = libs_path });
                 exe.linkSystemLibrary("vulkan-1");
                 exe.linkSystemLibrary("gdi32");
                 exe.linkSystemLibrary("dwmapi");
@@ -43,7 +60,7 @@ pub fn build(b: *std.Build) !void {
         }
 
         const vulkan = b.dependency("vulkan_zig", .{
-            .registry = b.path("thirdparty/VulkanHeaders/registry/vk.xml"),
+            .registry = std.Build.LazyPath{ .cwd_relative = registry_path },
         }).module("vulkan-zig");
         exe.root_module.addImport("vulkan", vulkan);
     }
@@ -64,7 +81,7 @@ pub fn build(b: *std.Build) !void {
         });
         imgui.addIncludePath(b.path("thirdparty/imgui"));
         imgui.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
-        imgui.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+        imgui.addIncludePath(std.Build.LazyPath{ .cwd_relative = header_path });
         imgui.addCSourceFiles(.{
             .files = &.{
                 "thirdparty/imgui/imgui.cpp",
@@ -82,8 +99,7 @@ pub fn build(b: *std.Build) !void {
             .flags = &.{"-DGLFW_INCLUDE_NONE"},
         });
         if (target.result.os.tag == .windows) {
-            const vulkan_sdk = env.get("VULKAN_SDK") orelse @panic("Failed to retrieve VULKAN_SDK env var");
-            imgui.addLibraryPath(.{ .cwd_relative = std.fmt.allocPrint(b.allocator, "{s}/lib", .{vulkan_sdk}) catch unreachable });
+            imgui.addLibraryPath(std.Build.LazyPath{ .cwd_relative = libs_path });
         }
         exe.linkLibrary(imgui);
     }
@@ -102,11 +118,10 @@ pub fn build(b: *std.Build) !void {
                 .link_libcpp = true,
             }),
         });
-        vma.addIncludePath(b.path("thirdparty/VMA/include"));
-        vma.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+        vma.addIncludePath(std.Build.LazyPath{ .cwd_relative = header_path });
         vma.addCSourceFile(.{
             .file = b.addWriteFiles().add("vk_mem_alloc.cpp",
-                \\#include <vk_mem_alloc.h>
+                \\#include <vma/vk_mem_alloc.h>
             ),
             .flags = &.{"-DVMA_IMPLEMENTATION"},
         });
@@ -123,7 +138,7 @@ pub fn build(b: *std.Build) !void {
                     \\#define GLFW_INCLUDE_NONE
                     \\#include <GLFW/glfw3.h>
                     \\#include <vulkan/vulkan.h>
-                    \\#include <vk_mem_alloc.h>
+                    \\#include <vma/vk_mem_alloc.h>
                     \\#include <dcimgui.h>
                     \\#include <dcimgui_impl_glfw.h>
                     \\#include <dcimgui_impl_vulkan.h>
@@ -138,7 +153,7 @@ pub fn build(b: *std.Build) !void {
                     \\#include <GLFW/glfw3native.h>
                     \\#include <dwmapi.h>
                     \\#include <vulkan/vulkan.h>
-                    \\#include <vk_mem_alloc.h>
+                    \\#include <vma/vk_mem_alloc.h>
                     \\#include <dcimgui.h>
                     \\#include <dcimgui_impl_glfw.h>
                     \\#include <dcimgui_impl_vulkan.h>
@@ -156,8 +171,7 @@ pub fn build(b: *std.Build) !void {
         });
 
         c_translate.addIncludePath(zglfw.artifact("glfw").getEmittedIncludeTree());
-        c_translate.addIncludePath(b.path("thirdparty/VMA/include"));
-        c_translate.addIncludePath(b.path("thirdparty/VulkanHeaders/include"));
+        c_translate.addIncludePath(std.Build.LazyPath{ .cwd_relative = header_path });
         c_translate.addIncludePath(b.path("thirdparty/imgui"));
         exe.root_module.addImport("c", c_translate.createModule());
     }

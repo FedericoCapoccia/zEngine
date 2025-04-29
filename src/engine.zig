@@ -1,18 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const c = @import("c");
+const config = @import("config");
 const glfw = @import("zglfw");
 const vk = @import("vulkan");
-const vk_utils = @import("vulkan/utils.zig");
 
-const c = @import("c");
+const core = @import("core/core.zig");
 const RenderContext = @import("vulkan/context.zig").RenderContext;
 const Swapchain = @import("vulkan/swapchain.zig").Swapchain;
-const core = @import("core/core.zig");
+const vk_utils = @import("vulkan/utils.zig");
 
 const log = std.log.scoped(.engine);
-
-const ENABLE_IMGUI = true;
 
 // ===================================================================
 // [SECTION] GLFW callbacks
@@ -500,7 +499,7 @@ pub const Engine = struct {
             device.cmdPipelineBarrier2(self.draw_cmd, &info);
         }
 
-        if (ENABLE_IMGUI) {
+        if (config.imgui_enabled) {
             c.cImGui_ImplVulkan_NewFrame();
             c.cImGui_ImplGlfw_NewFrame();
             c.ImGui_NewFrame();
@@ -561,7 +560,7 @@ pub const Engine = struct {
 
         { // Draw ImGui stuff
 
-            if (ENABLE_IMGUI) {
+            if (config.imgui_enabled) {
                 vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
                 c.ImGui_ShowDemoWindow(null);
                 _ = c.ImGui_Begin("Tool", null, 0);
