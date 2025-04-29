@@ -562,7 +562,7 @@ pub const Engine = struct {
 
             if (config.imgui_enabled) {
                 vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
-                c.ImGui_ShowDemoWindow(null);
+                // c.ImGui_ShowDemoWindow(null);
                 _ = c.ImGui_Begin("Tool", null, 0);
                 c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
                 c.ImGui_Text("FPS: %d", self.timer.getFPS());
