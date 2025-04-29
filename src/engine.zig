@@ -12,7 +12,7 @@ const core = @import("core/core.zig");
 
 const log = std.log.scoped(.engine);
 
-const ENABLE_IMGUI = false;
+const ENABLE_IMGUI = true;
 
 // ===================================================================
 // [SECTION] GLFW callbacks
@@ -116,6 +116,10 @@ pub const Engine = struct {
             self.image_acquired = try self.rctx.device.createSemaphore(&.{}, null);
             self.render_done = try self.rctx.device.createSemaphore(&.{}, null);
             self.fence = try self.rctx.device.createFence(&fence_info, null);
+
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.image_acquired), "ImageAcquired[0]");
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.render_done), "RenderDone[0]");
+            try vk_utils.nameObject(&self.rctx.device, .fence, @intFromEnum(self.fence), "CmdFence[0]");
         }
 
         // ===================================================================
@@ -527,10 +531,11 @@ pub const Engine = struct {
             .view_mask = 0,
         };
 
+        vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Begin Rendering", .{ 1.0, 0, 0, 1.0 });
         device.cmdBeginRendering(self.draw_cmd, &rend_info);
 
         { // draw geometry
-
+            vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Drawing Triangle", .{ 0, 1.0, 0, 1.0 });
             device.cmdBindPipeline(self.draw_cmd, .graphics, self.pipeline);
             const viewport = vk.Viewport{
                 .x = 0,
@@ -551,11 +556,13 @@ pub const Engine = struct {
             device.cmdSetScissor(self.draw_cmd, 0, 1, @ptrCast(&scissor));
 
             device.cmdDraw(self.draw_cmd, 3, 1, 0, 0);
+            vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
         }
 
         { // Draw ImGui stuff
 
             if (ENABLE_IMGUI) {
+                vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
                 c.ImGui_ShowDemoWindow(null);
                 _ = c.ImGui_Begin("Tool", null, 0);
                 c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
@@ -565,6 +572,7 @@ pub const Engine = struct {
                 c.ImGui_Render();
                 const data = c.ImGui_GetDrawData();
                 c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(self.draw_cmd)));
+                vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
             } else {
                 const formatted = try std.fmt.allocPrintZ(
                     self.allocator,
@@ -577,6 +585,7 @@ pub const Engine = struct {
         }
 
         device.cmdEndRendering(self.draw_cmd);
+        vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
 
         {
             const to_present = vk.ImageMemoryBarrier2{

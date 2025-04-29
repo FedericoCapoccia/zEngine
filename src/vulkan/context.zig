@@ -337,6 +337,7 @@ pub const RenderContext = struct {
             this.graphics_queue.handle = this.device.getDeviceQueue(this.graphics_queue.family, 0);
             this.compute_queue.handle = this.device.getDeviceQueue(this.compute_queue.family, 0);
             this.transfer_queue.handle = this.device.getDeviceQueue(this.transfer_queue.family, 0);
+            try vk_utils.nameObject(&this.device, .device, @intFromEnum(this.device.handle), "Negro");
         }
         errdefer allocator.destroy(this.device.wrapper);
         errdefer this.device.destroyDevice(null);

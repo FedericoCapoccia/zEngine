@@ -1,4 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+const enable_tagging: bool = switch (builtin.mode) {
+    .Debug, .ReleaseSafe => true,
+    else => false,
+};
 
 const vk = @import("vulkan");
 
@@ -138,4 +144,34 @@ pub fn onValidation(
     }
 
     return vk.FALSE;
+}
+
+// ===================================================================
+// [SECTION] Debug Tagging
+// ===================================================================
+
+pub fn nameObject(device: *const vk.DeviceProxy, type_: vk.ObjectType, handle: u64, name: [*:0]const u8) !void {
+    if (!enable_tagging) return;
+
+    const info = vk.DebugUtilsObjectNameInfoEXT{
+        .object_handle = handle,
+        .object_type = type_,
+        .p_object_name = name,
+    };
+    try device.setDebugUtilsObjectNameEXT(&info);
+}
+
+pub fn beginLabel(device: *const vk.DeviceProxy, cmd: vk.CommandBuffer, label: [*:0]const u8, color: [4]f32) void {
+    if (!enable_tagging) return;
+
+    const info = vk.DebugUtilsLabelEXT{
+        .p_label_name = label,
+        .color = color,
+    };
+    device.cmdBeginDebugUtilsLabelEXT(cmd, &info);
+}
+
+pub fn endLabel(device: *const vk.DeviceProxy, cmd: vk.CommandBuffer) void {
+    if (!enable_tagging) return;
+    device.cmdEndDebugUtilsLabelEXT(cmd);
 }
