@@ -61,10 +61,6 @@ pub const Engine = struct {
         // ===================================================================
         _ = glfw.setErrorCallback(onError);
 
-        if (builtin.target.os.tag == .linux and config.use_x11) {
-            try glfw.initHint(.platform, c.GLFW_PLATFORM_X11);
-        }
-
         try glfw.init();
         errdefer glfw.terminate();
 

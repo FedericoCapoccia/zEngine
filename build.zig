@@ -29,8 +29,8 @@ pub fn build(b: *std.Build) !void {
     // ===================================================================
     std.log.info("zGlfw step", .{});
     const zglfw = b.dependency("zglfw", .{
-        .x11 = true,
-        .wayland = true,
+        .x11 = use_x11,
+        .wayland = !use_x11,
     });
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.linkLibrary(zglfw.artifact("glfw"));
@@ -179,7 +179,10 @@ pub fn build(b: *std.Build) !void {
         c_translate.addIncludePath(std.Build.LazyPath{ .cwd_relative = header_path });
         c_translate.addIncludePath(b.path("thirdparty/imgui"));
         const mod = c_translate.createModule();
-        mod.linkSystemLibrary("X11", .{});
+        if (use_x11 and target.result.os.tag == .linux) {
+            std.log.info("Linking X11...", .{});
+            mod.linkSystemLibrary("X11", .{});
+        }
         exe.root_module.addImport("c", mod);
     }
 

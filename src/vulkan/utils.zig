@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const enable_tagging: bool = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
+    .Debug => true,
     else => false,
 };
 

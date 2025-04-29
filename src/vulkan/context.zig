@@ -9,7 +9,7 @@ const Swapchain = @import("swapchain.zig").Swapchain;
 const vk_utils = @import("utils.zig");
 
 const enable_validation: bool = switch (builtin.mode) {
-    .Debug, .ReleaseSafe => true,
+    .Debug => true,
     else => false,
 };
 
@@ -114,6 +114,7 @@ pub const RenderContext = struct {
             this.instance = vk.InstanceProxy.init(handle, wrapper);
             errdefer this.instance.destroyInstance(null);
 
+            this.messenger = null;
             if (enable_validation) {
                 const severity = vk.DebugUtilsMessageSeverityFlagsEXT{
                     .error_bit_ext = true,
