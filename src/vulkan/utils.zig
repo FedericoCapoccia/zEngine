@@ -24,6 +24,36 @@ pub fn createShaderModule(device: vk.DeviceProxy, code: []const u8) !vk.ShaderMo
     return device.createShaderModule(&create_info, null);
 }
 
+pub fn layoutTransition(
+    image: vk.Image,
+    src_layout: vk.ImageLayout,
+    dst_layout: vk.ImageLayout,
+    src_access: vk.AccessFlags2,
+    dst_access: vk.AccessFlags2,
+    src_stage: vk.PipelineStageFlags2,
+    dst_stage: vk.PipelineStageFlags2,
+) vk.ImageMemoryBarrier2 {
+    const barrier = vk.ImageMemoryBarrier2{
+        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+        .subresource_range = vk.ImageSubresourceRange{
+            .aspect_mask = .{ .color_bit = true },
+            .base_mip_level = 0,
+            .level_count = vk.REMAINING_MIP_LEVELS,
+            .base_array_layer = 0,
+            .layer_count = vk.REMAINING_ARRAY_LAYERS,
+        },
+        .image = image,
+        .old_layout = src_layout,
+        .new_layout = dst_layout,
+        .src_access_mask = src_access,
+        .dst_access_mask = dst_access,
+        .src_stage_mask = src_stage,
+        .dst_stage_mask = dst_stage,
+    };
+    return barrier;
+}
+
 // ===================================================================
 // [SECTION] Logging
 // ===================================================================
