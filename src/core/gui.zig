@@ -134,13 +134,6 @@ pub const Gui = struct {
         c.ImGui_DestroyContext(self.context);
     }
 
-    pub fn newFrame(self: *const Gui) void {
-        _ = self;
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
-    }
-
     pub fn onResize(self: *const Gui, min_image_count: u32) void {
         _ = self;
         c.cImGui_ImplVulkan_SetMinImageCount(min_image_count);
@@ -148,6 +141,10 @@ pub const Gui = struct {
 
     pub fn draw(self: *const Gui, cmd: vk.CommandBuffer, timer: *Timer) void {
         vk_utils.beginLabel(self.device, cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
+
+        c.cImGui_ImplVulkan_NewFrame();
+        c.cImGui_ImplGlfw_NewFrame();
+        c.ImGui_NewFrame();
 
         // c.ImGui_ShowDemoWindow(null);
         _ = c.ImGui_Begin("Tool", null, 0);

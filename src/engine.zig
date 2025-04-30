@@ -472,6 +472,160 @@ pub const Engine = struct {
         self.timer.frame_counter = 0; // resets frametime tracking on resize
     }
 
+    fn draw2(self: *Engine) !void {
+        const device: *const vk.DeviceProxy = &self.rctx.device;
+        const swapchain: *Swapchain = &self.rctx.swapchain;
+
+        _ = try device.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, std.math.maxInt(u64));
+
+        const acquired = try swapchain.acquireNext(self.image_acquired, .null_handle);
+
+        if (acquired.result == .out_of_date) {
+            try self.resize();
+            return;
+        }
+
+        switch (acquired.result) {
+            Swapchain.Acquired.Result.suboptimal => self.window_resized = true,
+            Swapchain.Acquired.Result.timeout => log.warn("vkAcquireNextImageKHR timeout", .{}),
+            Swapchain.Acquired.Result.not_ready => log.warn("vkAcquireNextImageKHR not ready", .{}),
+            Swapchain.Acquired.Result.success => {},
+            else => unreachable,
+        }
+
+        try device.resetFences(1, @ptrCast(&self.fence));
+
+        try device.resetCommandPool(self.graphics_pool, .{});
+
+        const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
+        try device.beginCommandBuffer(self.draw_cmd, &begin_info);
+
+        // ===================================================================
+        // [SECTION] Image Memory Barriers
+        // ===================================================================
+        {}
+
+        // ===================================================================
+        // [SECTION] Geometry
+        // ===================================================================
+        {
+            self.render_extent.width = @min(self.rctx.swapchain.extent.width, self.render_target.max_extent.width);
+            self.render_extent.height = @min(self.rctx.swapchain.extent.height, self.render_target.max_extent.height);
+
+            const color_attachment = vk.RenderingAttachmentInfo{
+                .image_view = self.render_target.view,
+                .image_layout = .color_attachment_optimal,
+                .load_op = .clear,
+                .store_op = .store,
+                .resolve_mode = .{},
+                .resolve_image_layout = .undefined,
+                .resolve_image_view = .null_handle,
+                .clear_value = vk.ClearValue{
+                    .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 1.0 } },
+                },
+            };
+
+            const rend_info = vk.RenderingInfo{
+                .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = self.render_extent },
+                .layer_count = 1,
+                .color_attachment_count = 1,
+                .p_color_attachments = @ptrCast(&color_attachment),
+                .p_depth_attachment = null,
+                .p_stencil_attachment = null,
+                .view_mask = 0,
+            };
+
+            device.cmdBeginRendering(self.draw_cmd, &rend_info);
+            vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Triangle", .{ 1.0, 0, 0, 1.0 });
+
+            device.cmdBindPipeline(self.draw_cmd, .graphics, self.pipeline);
+            const viewport = vk.Viewport{
+                .x = 0,
+                .y = 0,
+                .width = @floatFromInt(self.render_extent.width),
+                .height = @floatFromInt(self.render_extent.height),
+                .min_depth = 0.0,
+                .max_depth = 1.0,
+            };
+
+            device.cmdSetViewport(self.draw_cmd, 0, 1, @ptrCast(&viewport));
+
+            const scissor = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = self.render_extent,
+            };
+
+            device.cmdSetScissor(self.draw_cmd, 0, 1, @ptrCast(&scissor));
+
+            device.cmdDraw(self.draw_cmd, 3, 1, 0, 0);
+
+            vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
+            device.cmdEndRendering(self.draw_cmd);
+        }
+
+        // ===================================================================
+        // [SECTION] Submit Command Buffer
+        // ===================================================================
+        {
+            const command_buffer_submit = vk.CommandBufferSubmitInfo{
+                .command_buffer = self.draw_cmd,
+                .device_mask = 0,
+            };
+
+            const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
+                .semaphore = self.image_acquired,
+                .stage_mask = .{ .color_attachment_output_bit = true }, // TODO: idk
+                .value = 0,
+                .device_index = 0,
+            };
+
+            const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
+                .semaphore = self.render_done,
+                .stage_mask = .{ .color_attachment_output_bit = true }, // TODO: idk
+                .value = 0,
+                .device_index = 0,
+            };
+
+            const submit = vk.SubmitInfo2{
+                .command_buffer_info_count = 1,
+                .p_command_buffer_infos = @ptrCast(&command_buffer_submit),
+                .wait_semaphore_info_count = 1,
+                .p_wait_semaphore_infos = &.{wait_for_swapchain_image_acquired},
+                .signal_semaphore_info_count = 1,
+                .p_signal_semaphore_infos = &.{signal_on_rendering_done},
+            };
+
+            try device.queueSubmit2(self.rctx.graphics_queue.handle, 1, @ptrCast(&submit), self.fence);
+        }
+
+        // ===================================================================
+        // [SECTION] Present
+        // ===================================================================
+        {
+            const info = vk.PresentInfoKHR{
+                .swapchain_count = 1,
+                .p_swapchains = @ptrCast(&self.rctx.swapchain.handle),
+                .wait_semaphore_count = 1,
+                .p_wait_semaphores = @ptrCast(&self.render_done),
+                .p_image_indices = @ptrCast(&acquired.image.index),
+            };
+
+            const res = device.queuePresentKHR(self.rctx.graphics_queue.handle, &info) catch |err| {
+                if (err != error.OutOfDateKHR) {
+                    std.log.err("Failed to present on the queue: {s}", .{@errorName(err)});
+                    return error.QueuePresentFailed;
+                }
+
+                try self.resize();
+                return;
+            };
+
+            if (res == vk.Result.suboptimal_khr or self.window_resized) {
+                try self.resize();
+            }
+        }
+    }
+
     fn draw(self: *Engine) !void {
         const device: *const vk.DeviceProxy = &self.rctx.device;
         const swapchain: *Swapchain = &self.rctx.swapchain;
@@ -529,10 +683,6 @@ pub const Engine = struct {
                 .p_image_memory_barriers = &.{ to_color, to_present },
             };
             device.cmdPipelineBarrier2(self.draw_cmd, &info);
-        }
-
-        if (self.gui) |gui| {
-            gui.newFrame();
         }
 
         const draw_extent = swapchain.extent;
