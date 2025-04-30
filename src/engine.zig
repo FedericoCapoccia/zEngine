@@ -563,6 +563,57 @@ pub const Engine = struct {
             device.cmdEndRendering(self.draw_cmd);
         }
 
+        // ===================================================================
+        // [SECTION] Blit Image
+        // ===================================================================
+        {
+            const src_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
+            const src_offset_2 = vk.Offset3D{
+                .x = @intCast(self.render_extent.width),
+                .y = @intCast(self.render_extent.height),
+                .z = 1,
+            };
+
+            const dst_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
+            const dst_offset_2 = vk.Offset3D{
+                .x = @intCast(swapchain.extent.width),
+                .y = @intCast(swapchain.extent.height),
+                .z = 1,
+            };
+
+            const region = vk.ImageBlit2{
+                .src_offsets = .{ src_offset_1, src_offset_2 },
+                .dst_offsets = .{ dst_offset_1, dst_offset_2 },
+                .src_subresource = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+                .dst_subresource = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .mip_level = 0,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+            };
+
+            const info = vk.BlitImageInfo2{
+                .src_image = self.render_target.handle,
+                .src_image_layout = .transfer_src_optimal,
+                .dst_image = acquired.image.handle,
+                .dst_image_layout = .transfer_dst_optimal,
+                .filter = .linear,
+                .region_count = 1,
+                .p_regions = @ptrCast(&region),
+            };
+
+            device.cmdBlitImage2(self.draw_cmd, &info);
+        }
+
+        // ===================================================================
+        // [SECTION] GUI
+        // ===================================================================
         if (self.gui) |gui| {
             const color_attachment = vk.RenderingAttachmentInfo{
                 .image_view = acquired.image.view,
@@ -589,7 +640,9 @@ pub const Engine = struct {
 
             device.cmdBeginRendering(self.draw_cmd, &rend_info);
             vk_utils.beginLabel(device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
+
             gui.draw(self.draw_cmd, &self.timer);
+
             vk_utils.endLabel(device, self.draw_cmd);
             device.cmdEndRendering(self.draw_cmd);
         }
