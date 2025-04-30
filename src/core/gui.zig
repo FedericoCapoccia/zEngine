@@ -140,8 +140,7 @@ pub const Gui = struct {
     }
 
     pub fn draw(self: *const Gui, cmd: vk.CommandBuffer, timer: *Timer) void {
-        vk_utils.beginLabel(self.device, cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
-
+        _ = self;
         c.cImGui_ImplVulkan_NewFrame();
         c.cImGui_ImplGlfw_NewFrame();
         c.ImGui_NewFrame();
@@ -155,8 +154,6 @@ pub const Gui = struct {
         c.ImGui_Render();
         const data = c.ImGui_GetDrawData();
         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
-
-        vk_utils.endLabel(self.device, cmd);
     }
 };
 

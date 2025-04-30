@@ -436,7 +436,7 @@ pub const Engine = struct {
             _ = self.timer.trackUpdate();
 
             // Render logic
-            self.draw() catch |err| {
+            self.draw2() catch |err| {
                 log.warn("Failed to draw frame: {s}", .{@errorName(err)});
             };
 
@@ -509,8 +509,8 @@ pub const Engine = struct {
         // [SECTION] Geometry
         // ===================================================================
         {
-            self.render_extent.width = @min(self.rctx.swapchain.extent.width, self.render_target.max_extent.width);
-            self.render_extent.height = @min(self.rctx.swapchain.extent.height, self.render_target.max_extent.height);
+            self.render_extent.width = @min(swapchain.extent.width, self.render_target.max_extent.width);
+            self.render_extent.height = @min(swapchain.extent.height, self.render_target.max_extent.height);
 
             const color_attachment = vk.RenderingAttachmentInfo{
                 .image_view = self.render_target.view,
@@ -563,6 +563,39 @@ pub const Engine = struct {
             device.cmdEndRendering(self.draw_cmd);
         }
 
+        if (self.gui) |gui| {
+            const color_attachment = vk.RenderingAttachmentInfo{
+                .image_view = acquired.image.view,
+                .image_layout = .color_attachment_optimal,
+                .load_op = .load,
+                .store_op = .store,
+                .resolve_mode = .{},
+                .resolve_image_layout = .undefined,
+                .resolve_image_view = .null_handle,
+                .clear_value = vk.ClearValue{
+                    .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 0.0 } },
+                },
+            };
+
+            const rend_info = vk.RenderingInfo{
+                .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = swapchain.extent },
+                .layer_count = 1,
+                .color_attachment_count = 1,
+                .p_color_attachments = @ptrCast(&color_attachment),
+                .p_depth_attachment = null,
+                .p_stencil_attachment = null,
+                .view_mask = 0,
+            };
+
+            device.cmdBeginRendering(self.draw_cmd, &rend_info);
+            vk_utils.beginLabel(device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
+            gui.draw(self.draw_cmd, &self.timer);
+            vk_utils.endLabel(device, self.draw_cmd);
+            device.cmdEndRendering(self.draw_cmd);
+        }
+
+        try device.endCommandBuffer(self.draw_cmd);
+
         // ===================================================================
         // [SECTION] Submit Command Buffer
         // ===================================================================
@@ -574,14 +607,14 @@ pub const Engine = struct {
 
             const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
                 .semaphore = self.image_acquired,
-                .stage_mask = .{ .color_attachment_output_bit = true }, // TODO: idk
+                .stage_mask = .{ .color_attachment_output_bit = true },
                 .value = 0,
                 .device_index = 0,
             };
 
             const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
                 .semaphore = self.render_done,
-                .stage_mask = .{ .color_attachment_output_bit = true }, // TODO: idk
+                .stage_mask = .{ .all_graphics_bit = true }, // FIXME: idk
                 .value = 0,
                 .device_index = 0,
             };
