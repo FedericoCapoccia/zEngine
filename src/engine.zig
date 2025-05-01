@@ -486,10 +486,7 @@ pub const Engine = struct {
         }
 
         switch (acquired.result) {
-            Swapchain.Acquired.Result.suboptimal => {
-                self.window_resized = true;
-                log.warn("Suboptimal", .{});
-            },
+            Swapchain.Acquired.Result.suboptimal => self.window_resized = true,
             Swapchain.Acquired.Result.timeout => log.warn("vkAcquireNextImageKHR timeout", .{}),
             Swapchain.Acquired.Result.not_ready => log.warn("vkAcquireNextImageKHR not ready", .{}),
             Swapchain.Acquired.Result.success => {},
@@ -517,32 +514,10 @@ pub const Engine = struct {
                 .{ .color_attachment_output_bit = true },
             );
 
-            const target_to_transfer = vk_utils.layoutTransition(
-                self.render_target.handle,
-                .color_attachment_optimal,
-                .transfer_src_optimal,
-                .{ .color_attachment_write_bit = true },
-                .{ .transfer_read_bit = true },
-                .{ .color_attachment_output_bit = true },
-                .{ .blit_bit = true },
-            );
-
-            const swapchain_to_transfer = vk_utils.layoutTransition(
-                acquired.image.handle,
-                .undefined,
-                .transfer_dst_optimal,
-                .{},
-                .{ .transfer_write_bit = true },
-                .{ .blit_bit = true },
-                .{ .blit_bit = true },
-            );
-
             const info = vk.DependencyInfo{
-                .image_memory_barrier_count = 3,
+                .image_memory_barrier_count = 1,
                 .p_image_memory_barriers = &.{
                     target_to_color,
-                    target_to_transfer,
-                    swapchain_to_transfer,
                 },
             };
             device.cmdPipelineBarrier2(self.draw_cmd, &info);
@@ -607,6 +582,40 @@ pub const Engine = struct {
         }
 
         // ===================================================================
+        // [SECTION] Blit Pass Barriers
+        // ===================================================================
+        {
+            const target_to_transfer = vk_utils.layoutTransition(
+                self.render_target.handle,
+                .color_attachment_optimal,
+                .transfer_src_optimal,
+                .{ .color_attachment_write_bit = true },
+                .{ .transfer_read_bit = true },
+                .{ .color_attachment_output_bit = true },
+                .{ .blit_bit = true },
+            );
+
+            const swapchain_to_transfer = vk_utils.layoutTransition(
+                acquired.image.handle,
+                .undefined,
+                .transfer_dst_optimal,
+                .{},
+                .{ .transfer_write_bit = true },
+                .{ .blit_bit = true },
+                .{ .blit_bit = true },
+            );
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 2,
+                .p_image_memory_barriers = &.{
+                    target_to_transfer,
+                    swapchain_to_transfer,
+                },
+            };
+            device.cmdPipelineBarrier2(self.draw_cmd, &info);
+        }
+
+        // ===================================================================
         // [SECTION] Blit Image
         // ===================================================================
         {
@@ -661,7 +670,7 @@ pub const Engine = struct {
         if (self.gui) |gui| {
 
             // ===================================================================
-            // [SECTION] After Blit Barriers
+            // [SECTION] GUI Pass Barriers
             // ===================================================================
             {
                 const swapchain_to_color = vk_utils.layoutTransition(
@@ -694,6 +703,9 @@ pub const Engine = struct {
                 device.cmdPipelineBarrier2(self.draw_cmd, &info);
             }
 
+            // ===================================================================
+            // [SECTION] GUI Pass
+            // ===================================================================
             const color_attachment = vk.RenderingAttachmentInfo{
                 .image_view = acquired.image.view,
                 .image_layout = .color_attachment_optimal,
