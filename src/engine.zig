@@ -351,7 +351,7 @@ pub const Engine = struct {
 
             const render_info = vk.PipelineRenderingCreateInfo{
                 .color_attachment_count = 1,
-                .p_color_attachment_formats = @ptrCast(&self.rctx.swapchain.format),
+                .p_color_attachment_formats = @ptrCast(&self.render_target.format),
                 .depth_attachment_format = .undefined,
                 .stencil_attachment_format = .undefined,
                 .view_mask = 0,
@@ -436,7 +436,7 @@ pub const Engine = struct {
             _ = self.timer.trackUpdate();
 
             // Render logic
-            self.draw2() catch |err| {
+            self.draw() catch |err| {
                 log.warn("Failed to draw frame: {s}", .{@errorName(err)});
             };
 
@@ -472,7 +472,7 @@ pub const Engine = struct {
         self.timer.frame_counter = 0; // resets frametime tracking on resize
     }
 
-    fn draw2(self: *Engine) !void {
+    fn draw(self: *Engine) !void {
         const device: *const vk.DeviceProxy = &self.rctx.device;
         const swapchain: *Swapchain = &self.rctx.swapchain;
 
@@ -486,7 +486,10 @@ pub const Engine = struct {
         }
 
         switch (acquired.result) {
-            Swapchain.Acquired.Result.suboptimal => self.window_resized = true,
+            Swapchain.Acquired.Result.suboptimal => {
+                self.window_resized = true;
+                log.warn("Suboptimal", .{});
+            },
             Swapchain.Acquired.Result.timeout => log.warn("vkAcquireNextImageKHR timeout", .{}),
             Swapchain.Acquired.Result.not_ready => log.warn("vkAcquireNextImageKHR not ready", .{}),
             Swapchain.Acquired.Result.success => {},
@@ -501,9 +504,49 @@ pub const Engine = struct {
         try device.beginCommandBuffer(self.draw_cmd, &begin_info);
 
         // ===================================================================
-        // [SECTION] Image Memory Barriers
+        // [SECTION] Triangle Pass Barriers
         // ===================================================================
-        {}
+        {
+            const target_to_color = vk_utils.layoutTransition(
+                self.render_target.handle,
+                self.render_target.old_layout,
+                .color_attachment_optimal,
+                .{},
+                .{ .color_attachment_write_bit = true },
+                .{ .color_attachment_output_bit = true },
+                .{ .color_attachment_output_bit = true },
+            );
+
+            const target_to_transfer = vk_utils.layoutTransition(
+                self.render_target.handle,
+                .color_attachment_optimal,
+                .transfer_src_optimal,
+                .{ .color_attachment_write_bit = true },
+                .{ .transfer_read_bit = true },
+                .{ .color_attachment_output_bit = true },
+                .{ .blit_bit = true },
+            );
+
+            const swapchain_to_transfer = vk_utils.layoutTransition(
+                acquired.image.handle,
+                .undefined,
+                .transfer_dst_optimal,
+                .{},
+                .{ .transfer_write_bit = true },
+                .{ .blit_bit = true },
+                .{ .blit_bit = true },
+            );
+
+            const info = vk.DependencyInfo{
+                .image_memory_barrier_count = 3,
+                .p_image_memory_barriers = &.{
+                    target_to_color,
+                    target_to_transfer,
+                    swapchain_to_transfer,
+                },
+            };
+            device.cmdPipelineBarrier2(self.draw_cmd, &info);
+        }
 
         // ===================================================================
         // [SECTION] Geometry
@@ -567,6 +610,7 @@ pub const Engine = struct {
         // [SECTION] Blit Image
         // ===================================================================
         {
+            self.render_target.old_layout = .transfer_src_optimal;
             const src_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
             const src_offset_2 = vk.Offset3D{
                 .x = @intCast(self.render_extent.width),
@@ -615,6 +659,41 @@ pub const Engine = struct {
         // [SECTION] GUI
         // ===================================================================
         if (self.gui) |gui| {
+
+            // ===================================================================
+            // [SECTION] After Blit Barriers
+            // ===================================================================
+            {
+                const swapchain_to_color = vk_utils.layoutTransition(
+                    acquired.image.handle,
+                    .transfer_dst_optimal,
+                    .color_attachment_optimal,
+                    .{ .transfer_write_bit = true },
+                    .{ .color_attachment_write_bit = true },
+                    .{ .blit_bit = true },
+                    .{ .color_attachment_output_bit = true },
+                );
+
+                const swapchain_to_present = vk_utils.layoutTransition(
+                    acquired.image.handle,
+                    .color_attachment_optimal,
+                    .present_src_khr,
+                    .{ .color_attachment_write_bit = true },
+                    .{},
+                    .{ .color_attachment_output_bit = true },
+                    .{ .bottom_of_pipe_bit = true },
+                );
+
+                const info = vk.DependencyInfo{
+                    .image_memory_barrier_count = 2,
+                    .p_image_memory_barriers = &.{
+                        swapchain_to_color,
+                        swapchain_to_present,
+                    },
+                };
+                device.cmdPipelineBarrier2(self.draw_cmd, &info);
+            }
+
             const color_attachment = vk.RenderingAttachmentInfo{
                 .image_view = acquired.image.view,
                 .image_layout = .color_attachment_optimal,
@@ -645,6 +724,29 @@ pub const Engine = struct {
 
             vk_utils.endLabel(device, self.draw_cmd);
             device.cmdEndRendering(self.draw_cmd);
+        } else {
+            // ===================================================================
+            // [SECTION] After Blit Barriers
+            // ===================================================================
+            {
+                const swapchain_to_present = vk_utils.layoutTransition(
+                    acquired.image.handle,
+                    .transfer_dst_optimal,
+                    .present_src_khr,
+                    .{ .transfer_write_bit = true },
+                    .{},
+                    .{ .blit_bit = true },
+                    .{ .bottom_of_pipe_bit = true },
+                );
+
+                const info = vk.DependencyInfo{
+                    .image_memory_barrier_count = 1,
+                    .p_image_memory_barriers = &.{
+                        swapchain_to_present,
+                    },
+                };
+                device.cmdPipelineBarrier2(self.draw_cmd, &info);
+            }
         }
 
         try device.endCommandBuffer(self.draw_cmd);
@@ -660,14 +762,14 @@ pub const Engine = struct {
 
             const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
                 .semaphore = self.image_acquired,
-                .stage_mask = .{ .color_attachment_output_bit = true },
+                .stage_mask = .{ .blit_bit = true },
                 .value = 0,
                 .device_index = 0,
             };
 
             const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
                 .semaphore = self.render_done,
-                .stage_mask = .{ .all_graphics_bit = true }, // FIXME: idk
+                .stage_mask = .{ .bottom_of_pipe_bit = true }, // FIXME: idk
                 .value = 0,
                 .device_index = 0,
             };
@@ -688,184 +790,6 @@ pub const Engine = struct {
         // [SECTION] Present
         // ===================================================================
         {
-            const info = vk.PresentInfoKHR{
-                .swapchain_count = 1,
-                .p_swapchains = @ptrCast(&self.rctx.swapchain.handle),
-                .wait_semaphore_count = 1,
-                .p_wait_semaphores = @ptrCast(&self.render_done),
-                .p_image_indices = @ptrCast(&acquired.image.index),
-            };
-
-            const res = device.queuePresentKHR(self.rctx.graphics_queue.handle, &info) catch |err| {
-                if (err != error.OutOfDateKHR) {
-                    std.log.err("Failed to present on the queue: {s}", .{@errorName(err)});
-                    return error.QueuePresentFailed;
-                }
-
-                try self.resize();
-                return;
-            };
-
-            if (res == vk.Result.suboptimal_khr or self.window_resized) {
-                try self.resize();
-            }
-        }
-    }
-
-    fn draw(self: *Engine) !void {
-        const device: *const vk.DeviceProxy = &self.rctx.device;
-        const swapchain: *Swapchain = &self.rctx.swapchain;
-
-        _ = try device.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, std.math.maxInt(u64));
-
-        const acquired = try swapchain.acquireNext(self.image_acquired, .null_handle);
-
-        if (acquired.result == .out_of_date) {
-            try self.resize();
-            return;
-        }
-
-        switch (acquired.result) {
-            Swapchain.Acquired.Result.suboptimal => self.window_resized = true,
-            Swapchain.Acquired.Result.timeout => log.warn("vkAcquireNextImageKHR timeout", .{}),
-            Swapchain.Acquired.Result.not_ready => log.warn("vkAcquireNextImageKHR not ready", .{}),
-            Swapchain.Acquired.Result.success => {},
-            else => unreachable,
-        }
-
-        try device.resetFences(1, @ptrCast(&self.fence));
-
-        try device.resetCommandPool(self.graphics_pool, .{});
-
-        const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
-        try device.beginCommandBuffer(self.draw_cmd, &begin_info);
-
-        // ===================================================================
-        // [SECTION] Image Memory Barriers
-        // ===================================================================
-        {
-            const to_color = vk_utils.layoutTransition(
-                acquired.image.handle,
-                .undefined,
-                .color_attachment_optimal,
-                .{},
-                .{ .color_attachment_write_bit = true },
-                .{ .color_attachment_output_bit = true },
-                .{ .color_attachment_output_bit = true },
-            );
-
-            const to_present = vk_utils.layoutTransition(
-                acquired.image.handle,
-                .color_attachment_optimal,
-                .present_src_khr,
-                .{ .color_attachment_write_bit = true },
-                .{},
-                .{ .color_attachment_output_bit = true },
-                .{},
-            );
-
-            const info = vk.DependencyInfo{
-                .image_memory_barrier_count = 2,
-                .p_image_memory_barriers = &.{ to_color, to_present },
-            };
-            device.cmdPipelineBarrier2(self.draw_cmd, &info);
-        }
-
-        const draw_extent = swapchain.extent;
-
-        const color_attachment = vk.RenderingAttachmentInfo{
-            .image_view = acquired.image.view,
-            .image_layout = .color_attachment_optimal,
-            .load_op = .clear,
-            .store_op = .store,
-            .resolve_mode = .{},
-            .resolve_image_layout = .undefined,
-            .resolve_image_view = .null_handle,
-            .clear_value = vk.ClearValue{
-                .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 0.0 } },
-            },
-        };
-
-        const rend_info = vk.RenderingInfo{
-            .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = draw_extent },
-            .layer_count = 1,
-            .color_attachment_count = 1,
-            .p_color_attachments = @ptrCast(&color_attachment),
-            .p_depth_attachment = null,
-            .p_stencil_attachment = null,
-            .view_mask = 0,
-        };
-
-        vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Begin Rendering", .{ 1.0, 0, 0, 1.0 });
-        device.cmdBeginRendering(self.draw_cmd, &rend_info);
-
-        { // draw geometry
-            vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Drawing Triangle", .{ 0, 1.0, 0, 1.0 });
-            device.cmdBindPipeline(self.draw_cmd, .graphics, self.pipeline);
-            const viewport = vk.Viewport{
-                .x = 0,
-                .y = 0,
-                .width = @floatFromInt(draw_extent.width),
-                .height = @floatFromInt(draw_extent.height),
-                .min_depth = 0.0,
-                .max_depth = 1.0,
-            };
-
-            device.cmdSetViewport(self.draw_cmd, 0, 1, @ptrCast(&viewport));
-
-            const scissor = vk.Rect2D{
-                .offset = .{ .x = 0, .y = 0 },
-                .extent = .{ .width = draw_extent.width, .height = draw_extent.height },
-            };
-
-            device.cmdSetScissor(self.draw_cmd, 0, 1, @ptrCast(&scissor));
-
-            device.cmdDraw(self.draw_cmd, 3, 1, 0, 0);
-            vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
-        }
-
-        if (self.gui) |gui| {
-            gui.draw(self.draw_cmd, &self.timer);
-        }
-
-        device.cmdEndRendering(self.draw_cmd);
-        vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
-
-        try device.endCommandBuffer(self.draw_cmd);
-
-        { // Submit
-            const command_buffer_submit = vk.CommandBufferSubmitInfo{
-                .command_buffer = self.draw_cmd,
-                .device_mask = 0,
-            };
-
-            const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
-                .semaphore = self.image_acquired,
-                .stage_mask = .{ .color_attachment_output_bit = true },
-                .value = 0,
-                .device_index = 0,
-            };
-
-            const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
-                .semaphore = self.render_done,
-                .stage_mask = .{ .color_attachment_output_bit = true },
-                .value = 0,
-                .device_index = 0,
-            };
-
-            const submit = vk.SubmitInfo2{
-                .command_buffer_info_count = 1,
-                .p_command_buffer_infos = @ptrCast(&command_buffer_submit),
-                .wait_semaphore_info_count = 1,
-                .p_wait_semaphore_infos = &.{wait_for_swapchain_image_acquired},
-                .signal_semaphore_info_count = 1,
-                .p_signal_semaphore_infos = &.{signal_on_rendering_done},
-            };
-
-            try device.queueSubmit2(self.rctx.graphics_queue.handle, 1, @ptrCast(&submit), self.fence);
-        }
-
-        { // Present
             const info = vk.PresentInfoKHR{
                 .swapchain_count = 1,
                 .p_swapchains = @ptrCast(&self.rctx.swapchain.handle),
