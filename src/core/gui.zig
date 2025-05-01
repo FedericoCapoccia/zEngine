@@ -139,19 +139,8 @@ pub const Gui = struct {
         c.cImGui_ImplVulkan_SetMinImageCount(min_image_count);
     }
 
-    pub fn draw(self: *const Gui, cmd: vk.CommandBuffer, timer: *Timer) void {
+    pub fn draw(self: *const Gui, cmd: vk.CommandBuffer) void {
         _ = self;
-        c.cImGui_ImplVulkan_NewFrame();
-        c.cImGui_ImplGlfw_NewFrame();
-        c.ImGui_NewFrame();
-
-        // c.ImGui_ShowDemoWindow(null);
-        _ = c.ImGui_Begin("Tool", null, 0);
-        c.ImGui_Text("Frame time: %.3f ms", timer.getFrametimeInMs());
-        c.ImGui_Text("FPS: %d", timer.getFPS());
-        c.ImGui_End();
-
-        c.ImGui_Render();
         const data = c.ImGui_GetDrawData();
         c.cImGui_ImplVulkan_RenderDrawData(data, @ptrFromInt(@intFromEnum(cmd)));
     }

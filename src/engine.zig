@@ -37,10 +37,22 @@ const AllocatedImage = struct {
     old_layout: vk.ImageLayout,
 };
 
+const Frame = struct {
+    graphics_pool: vk.CommandPool = .null_handle,
+    draw_cmd: vk.CommandBuffer = .null_handle,
+    image_acquired: vk.Semaphore = .null_handle,
+    render_done: vk.Semaphore = .null_handle,
+    fence: vk.Fence = .null_handle,
+    render_target: AllocatedImage = undefined,
+    render_extent: vk.Extent2D = undefined,
+};
+
 // ===================================================================
 // [SECTION] Engine
 // ===================================================================
 pub const Engine = struct {
+    const MAX_FRAMES_IN_FLIGHT: u32 = 2;
+
     // engine stuff
     allocator: std.mem.Allocator,
     timer: core.Timer = undefined,
@@ -50,13 +62,9 @@ pub const Engine = struct {
     gui: ?core.Gui = null,
 
     // Frame
-    graphics_pool: vk.CommandPool = .null_handle,
-    draw_cmd: vk.CommandBuffer = .null_handle,
-    image_acquired: vk.Semaphore = .null_handle,
-    render_done: vk.Semaphore = .null_handle,
-    fence: vk.Fence = .null_handle,
-    render_target: AllocatedImage = undefined,
-    render_extent: vk.Extent2D = undefined,
+    frames: [MAX_FRAMES_IN_FLIGHT]Frame = undefined,
+    frames_in_flight: u32 = 2, // change it with ImGui at runtime to enable/disable double buffering
+    current_frame: u32 = 0,
 
     pipeline: vk.Pipeline = .null_handle,
     pipeline_layout: vk.PipelineLayout = .null_handle,
@@ -126,26 +134,34 @@ pub const Engine = struct {
         // [SECTION] Rendering Data
         // ===================================================================
         {
-            self.graphics_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
-                .queue_family_index = self.rctx.graphics_queue.family,
-                .flags = .{ .transient_bit = true },
-            }, null);
+            self.frames = .{Frame{}} ** MAX_FRAMES_IN_FLIGHT;
 
-            const alloc = vk.CommandBufferAllocateInfo{
-                .command_buffer_count = 1,
-                .command_pool = self.graphics_pool,
-                .level = .primary,
-            };
-            try self.rctx.device.allocateCommandBuffers(&alloc, @ptrCast(&self.draw_cmd));
+            for (0..MAX_FRAMES_IN_FLIGHT) |idx| {
+                self.frames[idx].graphics_pool = try self.rctx.device.createCommandPool(&vk.CommandPoolCreateInfo{
+                    .queue_family_index = self.rctx.graphics_queue.family,
+                    .flags = .{ .transient_bit = true },
+                }, null);
 
-            const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
-            self.image_acquired = try self.rctx.device.createSemaphore(&.{}, null);
-            self.render_done = try self.rctx.device.createSemaphore(&.{}, null);
-            self.fence = try self.rctx.device.createFence(&fence_info, null);
+                const alloc = vk.CommandBufferAllocateInfo{
+                    .command_buffer_count = 1,
+                    .command_pool = self.frames[idx].graphics_pool,
+                    .level = .primary,
+                };
+                try self.rctx.device.allocateCommandBuffers(&alloc, @ptrCast(&self.frames[idx].draw_cmd));
 
-            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.image_acquired), "ImageAcquired[0]");
-            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.render_done), "RenderDone[0]");
-            try vk_utils.nameObject(&self.rctx.device, .fence, @intFromEnum(self.fence), "CmdFence[0]");
+                const fence_info = vk.FenceCreateInfo{ .flags = .{ .signaled_bit = true } };
+                self.frames[idx].image_acquired = try self.rctx.device.createSemaphore(&.{}, null);
+                self.frames[idx].render_done = try self.rctx.device.createSemaphore(&.{}, null);
+                self.frames[idx].fence = try self.rctx.device.createFence(&fence_info, null);
+            }
+
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.frames[0].image_acquired), "ImageAcquired[0]");
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.frames[0].render_done), "RenderDone[0]");
+            try vk_utils.nameObject(&self.rctx.device, .fence, @intFromEnum(self.frames[0].fence), "CmdFence[0]");
+
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.frames[1].image_acquired), "ImageAcquired[1]");
+            try vk_utils.nameObject(&self.rctx.device, .semaphore, @intFromEnum(self.frames[1].render_done), "RenderDone[1]");
+            try vk_utils.nameObject(&self.rctx.device, .fence, @intFromEnum(self.frames[1].fence), "CmdFence[1]");
         }
 
         // ===================================================================
@@ -161,80 +177,78 @@ pub const Engine = struct {
             log.debug("Creating draw image with size [{d}x{d}]", .{ monitor_extent.width, monitor_extent.height });
             const format = vk.Format.r32g32b32a32_sfloat;
 
-            const image_info = vk.ImageCreateInfo{
-                .image_type = .@"2d",
-                .format = format,
-                .extent = monitor_extent,
-                .mip_levels = 1,
-                .array_layers = 1,
-                .samples = .{ .@"1_bit" = true },
-                .tiling = .optimal,
-                .usage = .{
-                    .transfer_src_bit = true,
-                    .color_attachment_bit = true,
-                },
-                .sharing_mode = .exclusive,
-                .initial_layout = .undefined,
-            };
+            for (0..MAX_FRAMES_IN_FLIGHT) |idx| {
+                const image_info = vk.ImageCreateInfo{
+                    .image_type = .@"2d",
+                    .format = format,
+                    .extent = monitor_extent,
+                    .mip_levels = 1,
+                    .array_layers = 1,
+                    .samples = .{ .@"1_bit" = true },
+                    .tiling = .optimal,
+                    .usage = .{
+                        .transfer_src_bit = true,
+                        .color_attachment_bit = true,
+                    },
+                    .sharing_mode = .exclusive,
+                    .initial_layout = .undefined,
+                };
 
-            const alloc_info = c.VmaAllocationCreateInfo{
-                .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
-                .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            };
+                const alloc_info = c.VmaAllocationCreateInfo{
+                    .usage = c.VMA_MEMORY_USAGE_GPU_ONLY,
+                    .requiredFlags = c.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                };
 
-            var image: vk.Image = undefined;
-            var image_alloc: c.VmaAllocation = undefined;
-            const result = c.vmaCreateImage(
-                self.rctx.vma,
-                @ptrCast(&image_info),
-                &alloc_info,
-                @ptrCast(&image),
-                &image_alloc,
-                null,
-            );
+                var image: vk.Image = undefined;
+                var image_alloc: c.VmaAllocation = undefined;
+                const result = c.vmaCreateImage(
+                    self.rctx.vma,
+                    @ptrCast(&image_info),
+                    &alloc_info,
+                    @ptrCast(&image),
+                    &image_alloc,
+                    null,
+                );
 
-            if (result != c.VK_SUCCESS) {
-                return error.FailedToAllocRenderTarget;
+                if (result != c.VK_SUCCESS) {
+                    return error.FailedToAllocRenderTarget;
+                }
+
+                const view_info = vk.ImageViewCreateInfo{
+                    .view_type = .@"2d",
+                    .image = image,
+                    .format = format,
+                    .subresource_range = .{
+                        .aspect_mask = .{ .color_bit = true },
+                        .base_mip_level = 0,
+                        .base_array_layer = 0,
+                        .layer_count = 1,
+                        .level_count = 1,
+                    },
+                    .components = .{
+                        .r = .identity,
+                        .g = .identity,
+                        .b = .identity,
+                        .a = .identity,
+                    },
+                };
+
+                const view = try self.rctx.device.createImageView(&view_info, null);
+
+                self.frames[idx].render_target = AllocatedImage{
+                    .handle = image,
+                    .view = view,
+                    .max_extent = monitor_extent,
+                    .format = format,
+                    .allocation = image_alloc,
+                    .old_layout = .undefined,
+                };
+
+                self.frames[idx].render_extent = vk.Extent2D{
+                    .width = @min(self.rctx.swapchain.extent.width, self.frames[idx].render_target.max_extent.width),
+                    .height = @min(self.rctx.swapchain.extent.height, self.frames[idx].render_target.max_extent.height),
+                };
             }
-
-            const view_info = vk.ImageViewCreateInfo{
-                .view_type = .@"2d",
-                .image = image,
-                .format = format,
-                .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
-                    .base_mip_level = 0,
-                    .base_array_layer = 0,
-                    .layer_count = 1,
-                    .level_count = 1,
-                },
-                .components = .{
-                    .r = .identity,
-                    .g = .identity,
-                    .b = .identity,
-                    .a = .identity,
-                },
-            };
-
-            const view = try self.rctx.device.createImageView(&view_info, null);
-
-            self.render_target = AllocatedImage{
-                .handle = image,
-                .view = view,
-                .max_extent = monitor_extent,
-                .format = format,
-                .allocation = image_alloc,
-                .old_layout = .undefined,
-            };
-
-            self.render_extent = vk.Extent2D{
-                .width = @min(self.rctx.swapchain.extent.width, self.render_target.max_extent.width),
-                .height = @min(self.rctx.swapchain.extent.height, self.render_target.max_extent.height),
-            };
-        }
-        errdefer {
-            self.rctx.device.destroyImageView(self.render_target.view, null);
-            c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.render_target.handle)), self.render_target.allocation);
         }
 
         // ===================================================================
@@ -351,7 +365,7 @@ pub const Engine = struct {
 
             const render_info = vk.PipelineRenderingCreateInfo{
                 .color_attachment_count = 1,
-                .p_color_attachment_formats = @ptrCast(&self.render_target.format),
+                .p_color_attachment_formats = @ptrCast(&self.frames[0].render_target.format),
                 .depth_attachment_format = .undefined,
                 .stencil_attachment_format = .undefined,
                 .view_mask = 0,
@@ -414,13 +428,16 @@ pub const Engine = struct {
         self.rctx.device.destroyPipelineLayout(self.pipeline_layout, null);
         self.rctx.device.destroyPipeline(self.pipeline, null);
 
-        self.rctx.device.destroySemaphore(self.image_acquired, null);
-        self.rctx.device.destroySemaphore(self.render_done, null);
-        self.rctx.device.destroyFence(self.fence, null);
-        self.rctx.device.destroyCommandPool(self.graphics_pool, null);
+        for (0..MAX_FRAMES_IN_FLIGHT) |idx| {
+            const frame: *Frame = &self.frames[idx];
+            self.rctx.device.destroySemaphore(frame.image_acquired, null);
+            self.rctx.device.destroySemaphore(frame.render_done, null);
+            self.rctx.device.destroyFence(frame.fence, null);
+            self.rctx.device.destroyCommandPool(frame.graphics_pool, null);
 
-        self.rctx.device.destroyImageView(self.render_target.view, null);
-        c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(self.render_target.handle)), self.render_target.allocation);
+            self.rctx.device.destroyImageView(frame.render_target.view, null);
+            c.vmaDestroyImage(self.rctx.vma, @ptrFromInt(@intFromEnum(frame.render_target.handle)), frame.render_target.allocation);
+        }
 
         self.rctx.destroy();
         self.window.destroy();
@@ -475,10 +492,11 @@ pub const Engine = struct {
     fn draw(self: *Engine) !void {
         const device: *const vk.DeviceProxy = &self.rctx.device;
         const swapchain: *Swapchain = &self.rctx.swapchain;
+        const frame: *Frame = &self.frames[self.current_frame % self.frames_in_flight];
 
-        _ = try device.waitForFences(1, @ptrCast(&self.fence), vk.TRUE, std.math.maxInt(u64));
+        _ = try device.waitForFences(1, @ptrCast(&frame.fence), vk.TRUE, std.math.maxInt(u64));
 
-        const acquired = try swapchain.acquireNext(self.image_acquired, .null_handle);
+        const acquired = try swapchain.acquireNext(frame.image_acquired, .null_handle);
 
         if (acquired.result == .out_of_date) {
             try self.resize();
@@ -493,45 +511,40 @@ pub const Engine = struct {
             else => unreachable,
         }
 
-        try device.resetFences(1, @ptrCast(&self.fence));
+        try device.resetFences(1, @ptrCast(&frame.fence));
 
-        try device.resetCommandPool(self.graphics_pool, .{});
+        try device.resetCommandPool(frame.graphics_pool, .{});
 
         const begin_info = vk.CommandBufferBeginInfo{ .flags = .{ .one_time_submit_bit = true } };
-        try device.beginCommandBuffer(self.draw_cmd, &begin_info);
+        try device.beginCommandBuffer(frame.draw_cmd, &begin_info);
 
-        // ===================================================================
-        // [SECTION] Triangle Pass Barriers
-        // ===================================================================
-        {
-            const target_to_color = vk_utils.layoutTransition(
-                self.render_target.handle,
-                self.render_target.old_layout,
+        if (frame.render_target.old_layout == .undefined) { // NOTE: so this is the first time the frame get rolled
+            vk_utils.beginLabel(device, frame.draw_cmd, "render_target->color_layout(first time)", .{ 1.0, 0.0, 0.0, 1.0 });
+            const barrier = vk_utils.layoutTransition(
+                frame.render_target.handle,
+                .undefined,
                 .color_attachment_optimal,
                 .{},
                 .{ .color_attachment_write_bit = true },
-                .{ .color_attachment_output_bit = true },
+                .{},
                 .{ .color_attachment_output_bit = true },
             );
-
-            const info = vk.DependencyInfo{
-                .image_memory_barrier_count = 1,
-                .p_image_memory_barriers = &.{
-                    target_to_color,
-                },
-            };
-            device.cmdPipelineBarrier2(self.draw_cmd, &info);
+            device.cmdPipelineBarrier2(
+                frame.draw_cmd,
+                &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+            );
+            vk_utils.endLabel(device, frame.draw_cmd);
         }
 
         // ===================================================================
         // [SECTION] Geometry
         // ===================================================================
         {
-            self.render_extent.width = @min(swapchain.extent.width, self.render_target.max_extent.width);
-            self.render_extent.height = @min(swapchain.extent.height, self.render_target.max_extent.height);
+            frame.render_extent.width = @min(swapchain.extent.width, frame.render_target.max_extent.width);
+            frame.render_extent.height = @min(swapchain.extent.height, frame.render_target.max_extent.height);
 
             const color_attachment = vk.RenderingAttachmentInfo{
-                .image_view = self.render_target.view,
+                .image_view = frame.render_target.view,
                 .image_layout = .color_attachment_optimal,
                 .load_op = .clear,
                 .store_op = .store,
@@ -544,7 +557,7 @@ pub const Engine = struct {
             };
 
             const rend_info = vk.RenderingInfo{
-                .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = self.render_extent },
+                .render_area = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = frame.render_extent },
                 .layer_count = 1,
                 .color_attachment_count = 1,
                 .p_color_attachments = @ptrCast(&color_attachment),
@@ -553,77 +566,79 @@ pub const Engine = struct {
                 .view_mask = 0,
             };
 
-            device.cmdBeginRendering(self.draw_cmd, &rend_info);
-            vk_utils.beginLabel(&self.rctx.device, self.draw_cmd, "Triangle", .{ 1.0, 0, 0, 1.0 });
+            device.cmdBeginRendering(frame.draw_cmd, &rend_info);
+            vk_utils.beginLabel(&self.rctx.device, frame.draw_cmd, "Triangle", .{ 1.0, 0, 0, 1.0 });
 
-            device.cmdBindPipeline(self.draw_cmd, .graphics, self.pipeline);
+            device.cmdBindPipeline(frame.draw_cmd, .graphics, self.pipeline);
             const viewport = vk.Viewport{
                 .x = 0,
                 .y = 0,
-                .width = @floatFromInt(self.render_extent.width),
-                .height = @floatFromInt(self.render_extent.height),
+                .width = @floatFromInt(frame.render_extent.width),
+                .height = @floatFromInt(frame.render_extent.height),
                 .min_depth = 0.0,
                 .max_depth = 1.0,
             };
 
-            device.cmdSetViewport(self.draw_cmd, 0, 1, @ptrCast(&viewport));
+            device.cmdSetViewport(frame.draw_cmd, 0, 1, @ptrCast(&viewport));
 
             const scissor = vk.Rect2D{
                 .offset = .{ .x = 0, .y = 0 },
-                .extent = self.render_extent,
+                .extent = frame.render_extent,
             };
 
-            device.cmdSetScissor(self.draw_cmd, 0, 1, @ptrCast(&scissor));
+            device.cmdSetScissor(frame.draw_cmd, 0, 1, @ptrCast(&scissor));
 
-            device.cmdDraw(self.draw_cmd, 3, 1, 0, 0);
+            device.cmdDraw(frame.draw_cmd, 3, 1, 0, 0);
 
-            vk_utils.endLabel(&self.rctx.device, self.draw_cmd);
-            device.cmdEndRendering(self.draw_cmd);
+            vk_utils.endLabel(&self.rctx.device, frame.draw_cmd);
+            device.cmdEndRendering(frame.draw_cmd);
         }
 
-        // ===================================================================
-        // [SECTION] Blit Pass Barriers
-        // ===================================================================
         {
-            const target_to_transfer = vk_utils.layoutTransition(
-                self.render_target.handle,
+            vk_utils.beginLabel(device, frame.draw_cmd, "render_target->transfer_src", .{ 1.0, 0.0, 0.0, 1.0 });
+            const barrier = vk_utils.layoutTransition(
+                frame.render_target.handle,
                 .color_attachment_optimal,
                 .transfer_src_optimal,
                 .{ .color_attachment_write_bit = true },
                 .{ .transfer_read_bit = true },
                 .{ .color_attachment_output_bit = true },
-                .{ .blit_bit = true },
+                .{ .all_transfer_bit = true },
             );
+            device.cmdPipelineBarrier2(
+                frame.draw_cmd,
+                &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+            );
+            vk_utils.endLabel(device, frame.draw_cmd);
+        }
 
-            const swapchain_to_transfer = vk_utils.layoutTransition(
+        {
+            vk_utils.beginLabel(device, frame.draw_cmd, "swapchain_image->transfer_dst", .{ 1.0, 0.0, 0.0, 1.0 });
+            const barrier = vk_utils.layoutTransition(
                 acquired.image.handle,
                 .undefined,
                 .transfer_dst_optimal,
                 .{},
                 .{ .transfer_write_bit = true },
-                .{ .blit_bit = true },
-                .{ .blit_bit = true },
+                .{ .all_transfer_bit = true }, // This creates a dependency chain at transfer stage so it waits for image_acquired semaphore
+                .{ .all_transfer_bit = true },
             );
-
-            const info = vk.DependencyInfo{
-                .image_memory_barrier_count = 2,
-                .p_image_memory_barriers = &.{
-                    target_to_transfer,
-                    swapchain_to_transfer,
-                },
-            };
-            device.cmdPipelineBarrier2(self.draw_cmd, &info);
+            device.cmdPipelineBarrier2(
+                frame.draw_cmd,
+                &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+            );
+            vk_utils.endLabel(device, frame.draw_cmd);
         }
 
         // ===================================================================
         // [SECTION] Blit Image
         // ===================================================================
         {
-            self.render_target.old_layout = .transfer_src_optimal;
+            vk_utils.beginLabel(device, frame.draw_cmd, "blit render_target->swapchain_image", .{ 1.0, 0.0, 0.0, 1.0 });
             const src_offset_1 = vk.Offset3D{ .x = 0, .y = 0, .z = 0 };
             const src_offset_2 = vk.Offset3D{
-                .x = @intCast(self.render_extent.width),
-                .y = @intCast(self.render_extent.height),
+                .x = @intCast(frame.render_extent.width),
+                .y = @intCast(frame.render_extent.height),
                 .z = 1,
             };
 
@@ -652,7 +667,7 @@ pub const Engine = struct {
             };
 
             const info = vk.BlitImageInfo2{
-                .src_image = self.render_target.handle,
+                .src_image = frame.render_target.handle,
                 .src_image_layout = .transfer_src_optimal,
                 .dst_image = acquired.image.handle,
                 .dst_image_layout = .transfer_dst_optimal,
@@ -661,46 +676,50 @@ pub const Engine = struct {
                 .p_regions = @ptrCast(&region),
             };
 
-            device.cmdBlitImage2(self.draw_cmd, &info);
+            device.cmdBlitImage2(frame.draw_cmd, &info);
+            vk_utils.endLabel(device, frame.draw_cmd);
+        }
+
+        {
+            vk_utils.beginLabel(device, frame.draw_cmd, "render_target->color_attachment", .{ 1.0, 0.0, 0.0, 1.0 });
+            const barrier = vk_utils.layoutTransition(
+                frame.render_target.handle,
+                .transfer_src_optimal,
+                .color_attachment_optimal,
+                .{ .transfer_read_bit = true },
+                .{ .color_attachment_write_bit = true },
+                .{ .all_transfer_bit = true },
+                .{ .color_attachment_output_bit = true },
+            );
+            device.cmdPipelineBarrier2(
+                frame.draw_cmd,
+                &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+            );
+
+            frame.render_target.old_layout = .color_attachment_optimal;
+            vk_utils.endLabel(device, frame.draw_cmd);
         }
 
         // ===================================================================
         // [SECTION] GUI
         // ===================================================================
         if (self.gui) |gui| {
-
-            // ===================================================================
-            // [SECTION] GUI Pass Barriers
-            // ===================================================================
             {
-                const swapchain_to_color = vk_utils.layoutTransition(
+                vk_utils.beginLabel(device, frame.draw_cmd, "swapchain->color", .{ 1.0, 0.0, 0.0, 1.0 });
+                const barrier = vk_utils.layoutTransition(
                     acquired.image.handle,
                     .transfer_dst_optimal,
                     .color_attachment_optimal,
                     .{ .transfer_write_bit = true },
-                    .{ .color_attachment_write_bit = true },
-                    .{ .blit_bit = true },
+                    .{ .color_attachment_write_bit = true, .color_attachment_read_bit = true }, // because of load_op
+                    .{ .all_transfer_bit = true },
                     .{ .color_attachment_output_bit = true },
                 );
-
-                const swapchain_to_present = vk_utils.layoutTransition(
-                    acquired.image.handle,
-                    .color_attachment_optimal,
-                    .present_src_khr,
-                    .{ .color_attachment_write_bit = true },
-                    .{},
-                    .{ .color_attachment_output_bit = true },
-                    .{ .bottom_of_pipe_bit = true },
+                device.cmdPipelineBarrier2(
+                    frame.draw_cmd,
+                    &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
                 );
-
-                const info = vk.DependencyInfo{
-                    .image_memory_barrier_count = 2,
-                    .p_image_memory_barriers = &.{
-                        swapchain_to_color,
-                        swapchain_to_present,
-                    },
-                };
-                device.cmdPipelineBarrier2(self.draw_cmd, &info);
+                vk_utils.endLabel(device, frame.draw_cmd);
             }
 
             // ===================================================================
@@ -729,59 +748,85 @@ pub const Engine = struct {
                 .view_mask = 0,
             };
 
-            device.cmdBeginRendering(self.draw_cmd, &rend_info);
-            vk_utils.beginLabel(device, self.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
+            device.cmdBeginRendering(frame.draw_cmd, &rend_info);
+            vk_utils.beginLabel(device, frame.draw_cmd, "ImGUI", .{ 0, 1.0, 1.0, 1.0 });
 
-            gui.draw(self.draw_cmd, &self.timer);
+            c.cImGui_ImplVulkan_NewFrame();
+            c.cImGui_ImplGlfw_NewFrame();
+            c.ImGui_NewFrame();
 
-            vk_utils.endLabel(device, self.draw_cmd);
-            device.cmdEndRendering(self.draw_cmd);
-        } else {
-            // ===================================================================
-            // [SECTION] After Blit Barriers
-            // ===================================================================
+            // c.ImGui_ShowDemoWindow(null);
+            _ = c.ImGui_Begin("Tool", null, 0);
+            c.ImGui_Text("Frame time: %.3f ms", self.timer.getFrametimeInMs());
+            c.ImGui_Text("FPS: %d", self.timer.getFPS());
+            _ = c.ImGui_SliderInt("Frame Buffering", @ptrCast(&self.frames_in_flight), 1, MAX_FRAMES_IN_FLIGHT);
+            c.ImGui_Text("Current value: %d", self.frames_in_flight);
+            c.ImGui_End();
+
+            c.ImGui_Render();
+
+            gui.draw(frame.draw_cmd);
+
+            vk_utils.endLabel(device, frame.draw_cmd);
+            device.cmdEndRendering(frame.draw_cmd);
+
             {
-                const swapchain_to_present = vk_utils.layoutTransition(
+                vk_utils.beginLabel(device, frame.draw_cmd, "swapchain->present", .{ 1.0, 0.0, 0.0, 1.0 });
+                const barrier = vk_utils.layoutTransition(
                     acquired.image.handle,
-                    .transfer_dst_optimal,
+                    .color_attachment_optimal,
                     .present_src_khr,
-                    .{ .transfer_write_bit = true },
+                    .{ .color_attachment_write_bit = true },
                     .{},
-                    .{ .blit_bit = true },
-                    .{ .bottom_of_pipe_bit = true },
+                    .{ .color_attachment_output_bit = true },
+                    .{ .color_attachment_output_bit = true },
                 );
-
-                const info = vk.DependencyInfo{
-                    .image_memory_barrier_count = 1,
-                    .p_image_memory_barriers = &.{
-                        swapchain_to_present,
-                    },
-                };
-                device.cmdPipelineBarrier2(self.draw_cmd, &info);
+                device.cmdPipelineBarrier2(
+                    frame.draw_cmd,
+                    &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+                );
+                vk_utils.endLabel(device, frame.draw_cmd);
             }
+        } else {
+            // NOTE: if not rendering UI barrier transfer->present
+            vk_utils.beginLabel(device, frame.draw_cmd, "swapchain_image->present_khr(no gui)", .{ 1.0, 0.0, 0.0, 1.0 });
+            const barrier = vk_utils.layoutTransition(
+                acquired.image.handle,
+                .transfer_dst_optimal,
+                .present_src_khr,
+                .{ .transfer_write_bit = true },
+                .{},
+                .{ .all_transfer_bit = true },
+                .{ .color_attachment_output_bit = true },
+            );
+            device.cmdPipelineBarrier2(
+                frame.draw_cmd,
+                &.{ .image_memory_barrier_count = 1, .p_image_memory_barriers = &.{barrier} },
+            );
+            vk_utils.endLabel(device, frame.draw_cmd);
         }
 
-        try device.endCommandBuffer(self.draw_cmd);
+        try device.endCommandBuffer(frame.draw_cmd);
 
         // ===================================================================
         // [SECTION] Submit Command Buffer
         // ===================================================================
         {
             const command_buffer_submit = vk.CommandBufferSubmitInfo{
-                .command_buffer = self.draw_cmd,
+                .command_buffer = frame.draw_cmd,
                 .device_mask = 0,
             };
 
             const wait_for_swapchain_image_acquired = vk.SemaphoreSubmitInfo{
-                .semaphore = self.image_acquired,
-                .stage_mask = .{ .blit_bit = true },
+                .semaphore = frame.image_acquired,
+                .stage_mask = .{ .all_transfer_bit = true },
                 .value = 0,
                 .device_index = 0,
             };
 
             const signal_on_rendering_done = vk.SemaphoreSubmitInfo{
-                .semaphore = self.render_done,
-                .stage_mask = .{ .bottom_of_pipe_bit = true }, // FIXME: idk
+                .semaphore = frame.render_done,
+                .stage_mask = .{ .bottom_of_pipe_bit = true },
                 .value = 0,
                 .device_index = 0,
             };
@@ -795,7 +840,7 @@ pub const Engine = struct {
                 .p_signal_semaphore_infos = &.{signal_on_rendering_done},
             };
 
-            try device.queueSubmit2(self.rctx.graphics_queue.handle, 1, @ptrCast(&submit), self.fence);
+            try device.queueSubmit2(self.rctx.graphics_queue.handle, 1, @ptrCast(&submit), frame.fence);
         }
 
         // ===================================================================
@@ -806,7 +851,7 @@ pub const Engine = struct {
                 .swapchain_count = 1,
                 .p_swapchains = @ptrCast(&self.rctx.swapchain.handle),
                 .wait_semaphore_count = 1,
-                .p_wait_semaphores = @ptrCast(&self.render_done),
+                .p_wait_semaphores = @ptrCast(&frame.render_done),
                 .p_image_indices = @ptrCast(&acquired.image.index),
             };
 
@@ -824,5 +869,7 @@ pub const Engine = struct {
                 try self.resize();
             }
         }
+
+        self.current_frame = (self.current_frame + 1) % self.frames_in_flight;
     }
 };
